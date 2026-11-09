@@ -73,3 +73,27 @@ def test_ollama_shadow_mode(ollama_engine):
     lm = [r for r in recs if r.mode == "lmcache"]
     assert all(r.shadow for r in lm)
     assert lm[1].chunks_hit > 0 and lm[1].server_cached_tokens > 0
+
+
+@pytest.fixture(scope="module")
+def cloud_engine(live_settings):
+    """Cloud engine pointed at KVB_CLOUD_* (default: Ollama's OpenAI-compatible API, no cost)."""
+    import dataclasses
+    s = dataclasses.replace(live_settings, engine="cloud")
+    if not s.resolved_cloud_url():
+        s.cloud_provider = "ollama-local-openai"
+    s.cloud_model = s.cloud_model or s.ollama_model
+    e = CachedEngine(s, make_backend("cloud", s))
+    try:
+        e.start()
+    except BackendError as exc:
+        pytest.skip(f"cloud endpoint unavailable: {exc}")
+    yield e
+
+
+def test_cloud_engine_shadow_mode(cloud_engine):
+    recs = SCENARIOS["shared_prefix"].run(cloud_engine, users=3, system_tokens=700)
+    assert not [r.error for r in recs if r.error]
+    lm = [r for r in recs if r.mode == "lmcache"]
+    assert all(r.shadow for r in lm) and lm[1].chunks_hit > 0
+    assert cloud_engine.backend.describe()["location"] == "cloud"

@@ -1,4 +1,4 @@
-# Research: LMCache x Ollama x llama.cpp
+# Research: LMCache x Ollama x llama.cpp x cloud engines
 
 This page records what was researched, what is technically feasible, which
 challenges came up, and how KVBridge solves them. It is also shown in the
@@ -31,6 +31,7 @@ agents).
 | SGLang / TRT-LLM | Yes | Yes | Out of scope |
 | **llama.cpp** (`llama-server`) | **No** | **Yes** - slot save/restore API | **Full integration**: real KV tensors are saved to / restored from the cache layer |
 | **Ollama** | **No** (issue #923 closed "not planned") | **No** - no KV export/import, no tokenizer endpoint | **Shadow mode**: the layer indexes chunks, predicts reuse, and uses Ollama's `prompt_eval_cached_count` as ground truth |
+| **Cloud APIs** (OpenAI, Groq, OpenRouter, Together, Mistral, DeepSeek...; also vLLM / LM Studio servers) | **No** (vLLM itself is supported, but only when you control the server) | **No** - hosted APIs never expose KV tensors | **Shadow mode** through the OpenAI-compatible REST API; the provider's `cached_tokens` is the ground truth |
 
 Platform finding: the LMCache PyPI wheel is `manylinux`-only and its build
 needs CUDA. On macOS `pip install lmcache` fails with *"CUDA_HOME not set"*.
@@ -46,8 +47,10 @@ compatibility is verified.
 | Can the *concepts* be reproduced faithfully? | **Yes** for llama.cpp, thanks to `/slots/{id}?action=save|restore`. |
 | Can Ollama benefit? | Only partially. Ollama already has an in-process prefix cache, but it hides KV state, so external persistence or sharing is impossible. KVBridge can only *observe and account*. |
 
+| Can a hosted API benefit? | Only by *observation*. Providers run their own prefix cache (automatic above a minimum prompt length, limited lifetime) and report `cached_tokens`; KVBridge shows how well your prompts exploit it and can cap spend with a token budget. |
+
 KVBridge is therefore an **LMCache-style layer** (same chunking, same hashing,
-same tier model, same metrics vocabulary) built for local engines. It is not a
+same tier model, same metrics vocabulary) built for local and cloud engines. It is not a
 fork or a drop-in replacement of LMCache.
 
 ## 4. Approach
@@ -59,12 +62,17 @@ fork or a drop-in replacement of LMCache.
    (`KVB_USE_LMCACHE_HASHER=true`).
 2. **Store** (`kvbridge/store.py`): L1 (RAM) + L2 (disk) with LRU eviction,
    write-through, persisted index and live resizing.
-3. **Backends** (`kvbridge/backends.py`): `LlamaCppBackend` (real tensors) and
-   `OllamaBackend` (shadow mode).
+3. **Backends and engine registry** (`kvbridge/backends.py`): `LlamaCppBackend`
+   (real tensors), `OllamaBackend` and `CloudBackend` (shadow mode). Engines register
+   themselves (`register_engine`), so the GUI choices, config validation and factory
+   are all generated from one registry.
+3b. **Configuration** (`kvbridge/config.py`): every engine setting lives in `Settings`
+   and can come from the GUI, `KVB_*` variables or `.env` (priority in that order).
+   Updates are atomic and validated before use; secrets are masked and never logged.
 4. **Pipeline** (`kvbridge/engine.py`): tokenize -> chunk-hash -> longest-prefix
    lookup -> restore -> prefill only the missing suffix -> save.
-5. **GUI** (`kvbridge/app.py`, Gradio): engine control, dashboard, playground,
-   scenarios, cache inspector.
+5. **GUI** (`kvbridge/app.py`, Gradio): engine selection and per-engine settings,
+   dashboard, playground, scenarios, cache inspector.
 
 Three modes make the benefit measurable: `cold` (no reuse), `native` (engine's
 own cache) and `lmcache` (the KV layer).
@@ -107,7 +115,14 @@ resident.
 | llama.cpp's own host-RAM prompt cache would hide LMCache's effect | Managed server runs with `--cache-ram 0` (`KVB_CACHE_RAM_MB`) |
 | `llama-server` binary and model location | Auto-detect binary (PATH, brew, Ollama.app); resolve the Ollama GGUF blob from its manifest |
 | Cache validity after config change | Persisted index is ignored when the chunk size differs (logged warning) |
-| Gradio sends analytics | Disabled (`GRADIO_ANALYTICS_ENABLED=False`) to stay 100 % local |
+| Gradio sends analytics | Disabled (`GRADIO_ANALYTICS_ENABLED=False`); only the cloud engine talks to a remote host, and only to the URL you configure |
+| Hard-coded engine settings (search paths, timeouts, reserved ports, keep-alive, seed) | Moved into `Settings` with `KVB_*` variables and GUI fields; a test asserts `.env.example` lists every field |
+| Supporting many engines without `if engine == ...` chains | Engine registry + `Backend.kind` / `supports_kv_export` / `check_settings`; scenarios and GUI read capabilities, not names |
+| Cloud providers differ (`max_tokens` vs `max_completion_tokens`, no `temperature`, completions vs chat) | Configurable API style, max-tokens field name and temperature switch; provider presets for the common services |
+| Cloud has no KV export and may cache silently | Shadow mode; `cold` prepends a random nonce so the provider cannot reuse its cache; `cached_tokens` is reported as ground truth |
+| Cost and rate limits | `KVB_CLOUD_TOKEN_BUDGET` soft cap; 429/5xx retried with `Retry-After` |
+| API-key leakage | Password field never pre-filled; key can come from a named env var; masked in `to_display()`; redacted from errors; excluded from `.env` writes unless explicitly requested; `.env` written atomically with mode 0600; plain `http://` + key refused for non-loopback hosts |
+| Partial or invalid GUI edits | `Settings.apply()` validates a candidate copy and commits only if valid |
 | Port clashes (5000 AirDrop, 8080, 9931, 11434) | GUI on 7871, managed server on 8089; both configurable |
 | Background process dying with the shell | `start.sh` launches via `Popen(start_new_session=True)` |
 
@@ -117,7 +132,8 @@ resident.
   hashing.
 * Snapshots are whole-slot, not per-chunk, so storage is less deduplicated than
   real LMCache.
-* Ollama integration is observational only.
+* Ollama and cloud integrations are observational only (shadow mode).
+* Cloud use sends prompts off the machine, costs money, and is subject to the provider's cache minimum length, TTL and rate limits; KVBridge cannot make the provider cache more.
 * Cross-instance sharing, remote tiers (Redis/S3) and GPU memory tiers are not
   implemented.
 * A snapshot is only valid for the same model file and context size.
@@ -126,4 +142,5 @@ resident.
 
 * LMCache repository: https://github.com/LMCache/LMCache
 * LMCache issue #923 (Ollama / LM Studio support, closed "not planned")
+* OpenAI prompt caching (`usage.prompt_tokens_details.cached_tokens`): https://platform.openai.com/docs/guides/prompt-caching
 * llama.cpp server slot API: `POST /slots/{id}?action=save|restore|erase`

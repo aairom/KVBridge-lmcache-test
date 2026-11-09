@@ -105,6 +105,14 @@ class FakeOllama(FakeLlama):
         return super().__getattribute__(item)
 
 
+class FakeCloud(FakeOllama):
+    """Simulates a hosted OpenAI-compatible engine: shadow mode, prompts leave the machine."""
+
+    name = "fake-cloud"
+    kind = "cloud"
+    kv_bytes_per_token = 0
+
+
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
     return Settings(
@@ -124,6 +132,13 @@ def fake() -> FakeLlama:
 @pytest.fixture
 def fake_ollama() -> FakeOllama:
     b = FakeOllama()
+    b.start()
+    return b
+
+
+@pytest.fixture
+def fake_cloud() -> FakeCloud:
+    b = FakeCloud()
     b.start()
     return b
 

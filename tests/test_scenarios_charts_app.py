@@ -205,3 +205,101 @@ def test_sigterm_runs_cleanup(tmp_path):
         if p.poll() is None:
             p.kill()
     assert marker.exists(), "engine.stop() was not called on SIGTERM"
+
+
+# ------------------------------------------------- configurable-engine GUI helpers
+def _handlers(demo):
+    return {f.fn.__name__: f.fn for f in demo.fns.values() if getattr(f, "fn", None)}
+
+
+def test_form_to_values_keeps_existing_key_when_blank():
+    from kvbridge.app import form_to_values
+    assert "cloud_api_key" not in form_to_values({"cloud_api_key": "  ", "engine": "cloud"})
+    assert "cloud_api_key" not in form_to_values({"cloud_api_key": None})
+    assert form_to_values({"cloud_api_key": "k"})["cloud_api_key"] == "k"
+
+
+def test_engine_visibility_per_engine():
+    from kvbridge.app import engine_visibility
+    assert engine_visibility("llamacpp") == {"llamacpp": True, "ollama": False, "cloud": False,
+                                             "local_model": True, "warning": False}
+    assert engine_visibility("ollama")["ollama"] and not engine_visibility("ollama")["warning"]
+    cl = engine_visibility("openai")
+    assert cl["cloud"] and cl["warning"] and not cl["local_model"]
+    assert not any(engine_visibility("nope").values())
+
+
+def test_describe_connection_is_engine_agnostic():
+    from kvbridge.app import describe_connection
+    base = {"engine": "cloud", "model": "m@h", "n_ctx": 8192, "kv_export": False, "location": "cloud",
+            "kv_bytes_per_token": 0}
+    txt = describe_connection(base, "blake3")
+    assert "prompts leave this machine" in txt and "SHADOW" in txt and "KV size" not in txt
+    full = describe_connection({**base, "engine": "llama.cpp", "location": "local", "kv_export": True,
+                                "kv_bytes_per_token": 114688, "token_budget": 1000}, "blake3")
+    assert "FULL" in full and "this machine" in full and "KV size" in full and "1,000" in full
+
+
+def test_gui_connect_cloud_with_fake_backend(settings, fake_cloud, monkeypatch):
+    from kvbridge import app as A
+    monkeypatch.setattr(A, "make_backend", lambda kind, s: fake_cloud)
+    state = A.AppState(settings)
+    h = _handlers(A.build_app(state))
+    vals = dict(settings.to_display())
+    vals.update(engine="cloud", cloud_base_url="https://h.example/v1", cloud_model="m", cloud_api_key="sk-abc12345")
+    out = h["connect"](*[vals[n] for n in A.FORM_FIELDS])
+    assert "Connected" in out and "prompts leave this machine" in out and state.engine is not None
+    assert settings.engine == "cloud" and settings.cloud_api_key == "sk-abc12345"
+    assert "sk-abc12345" not in out
+    # blank key box keeps the stored key
+    vals["cloud_api_key"] = ""
+    h["connect"](*[vals[n] for n in A.FORM_FIELDS])
+    assert settings.cloud_api_key == "sk-abc12345"
+    assert "Disconnected" in h["disconnect"]() and state.engine is None
+
+
+def test_gui_connect_rejects_invalid_atomically(settings):
+    from kvbridge import app as A
+    state = A.AppState(settings)
+    h = _handlers(A.build_app(state))
+    vals = dict(settings.to_display())
+    vals.update(engine="cloud", cloud_base_url="", cloud_model="")
+    before = dict(settings.__dict__)
+    out = h["connect"](*[vals[n] for n in A.FORM_FIELDS])
+    assert "Invalid configuration" in out and "nothing was changed" in out
+    assert settings.__dict__ == before and state.engine is None
+
+
+def test_gui_save_env_never_writes_key_unless_asked(settings, tmp_path, monkeypatch):
+    from kvbridge import app as A
+    env = tmp_path / ".env"
+    monkeypatch.setattr(A, "ENV_FILE", env)
+    state = A.AppState(settings)
+    h = _handlers(A.build_app(state))
+    vals = dict(settings.to_display())
+    vals.update(engine="cloud", cloud_base_url="https://h.example/v1", cloud_model="m", cloud_api_key="sk-abc12345")
+    args = [vals[n] for n in A.FORM_FIELDS]
+    msg = h["save_env"](False, *args)
+    text = env.read_text()
+    assert "API key NOT written" in msg and "KVB_ENGINE=cloud" in text and "sk-abc12345" not in text
+    assert settings.engine != "cloud"                       # saving does not change the live settings
+    msg = h["save_env"](True, *args)
+    assert "including the API key" in msg and "KVB_CLOUD_API_KEY=sk-abc12345" in env.read_text()
+    bad = dict(vals, cloud_model="")
+    assert "Not saved" in h["save_env"](False, *[bad[n] for n in A.FORM_FIELDS])
+
+
+def test_gui_show_effective_masks_key(settings):
+    from kvbridge import app as A
+    settings.cloud_api_key = "sk-abc12345"
+    h = _handlers(A.build_app(A.AppState(settings)))
+    out = h["show_effective"]()
+    assert "sk-abc12345" not in out and "********" in out
+
+
+def test_gui_provider_and_engine_change(settings):
+    from kvbridge import app as A
+    h = _handlers(A.build_app(A.AppState(settings)))
+    assert h["on_provider_change"]("groq") == "https://api.groq.com/openai/v1"
+    assert isinstance(h["on_provider_change"](""), dict)
+    assert len(h["on_engine_change"]("cloud")) == 5

@@ -12,20 +12,77 @@ import sys
 import threading
 from typing import Optional
 
-# The app must be fully local: switch off Gradio's anonymous usage telemetry.
+# Switch off Gradio's anonymous usage telemetry (nothing is sent anywhere by the GUI itself).
 os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
 
 import gradio as gr  # noqa: E402  (import after the environment is configured)
 
 from . import __version__
-from .backends import BackendError, make_backend
+from .backends import BackendError, engine_choices, make_backend, resolve_engine
 from .charts import (chunk_map_figure, entries_table, fmt_bytes, hit_rate_figure, kpi_markdown,
                      mode_compare_figure, records_table, tier_figure, tokens_figure, ttft_figure)
-from .config import Settings
+from .config import CLOUD_API_STYLES, ENV_FILE, PROVIDER_PRESETS, Settings, update_env_file
 from .engine import CachedEngine
 from .scenarios import SCENARIOS, build_context
 
 log = logging.getLogger("kvbridge.app")
+
+#: Settings editable in the "Engine & Cache" tab, in the order of the form components.
+FORM_FIELDS = (
+    "engine", "ctx_size", "chunk_size", "l1_mb", "l2_mb", "write_through", "use_lmcache_hasher",
+    "seed", "request_timeout",
+    "ollama_model", "reserved_ports",
+    "llama_server_bin", "llama_search_paths", "llama_url", "model_path", "managed_port",
+    "llama_start_timeout", "n_gpu_layers", "cache_ram_mb", "extra_args",
+    "ollama_url", "ollama_keep_alive", "ollama_models_dir",
+    "cloud_provider", "cloud_base_url", "cloud_model", "cloud_api_key", "cloud_api_key_env",
+    "cloud_extra_headers", "cloud_api_style", "cloud_max_tokens_field", "cloud_send_temperature",
+    "cloud_stream_usage", "cloud_verify_tls", "cloud_token_budget", "cloud_kv_bytes_per_token",
+)
+
+CLOUD_WARNING = ("**Cloud engine selected - your prompts and documents are sent to the remote service "
+                 "and may be billed.** Use a key with a spending limit. The API key is kept in memory "
+                 "only; it is written to `.env` solely when you tick the box below.")
+
+
+def form_to_values(raw: dict) -> dict:
+    """Turn raw form values into a ``Settings.apply`` mapping.
+
+    A blank API-key box means "keep the current key": the secret is never echoed
+    back into the form, so an empty value must not wipe it.
+    """
+    values = dict(raw)
+    if not str(values.get("cloud_api_key") or "").strip():
+        values.pop("cloud_api_key", None)
+    return values
+
+
+def engine_visibility(engine_key: str) -> dict[str, bool]:
+    """Which setting groups to show for *engine_key* (unknown engines show none)."""
+    try:
+        key = resolve_engine(engine_key).key
+        kind = resolve_engine(engine_key).location
+    except BackendError:
+        return {"llamacpp": False, "ollama": False, "cloud": False, "local_model": False, "warning": False}
+    return {"llamacpp": key == "llamacpp", "ollama": key == "ollama", "cloud": key == "cloud",
+            "local_model": key in ("llamacpp", "ollama"), "warning": kind == "cloud"}
+
+
+def describe_connection(d: dict, hasher_impl: str) -> str:
+    """Human-readable status for a freshly started backend (engine-agnostic)."""
+    place = ("remote service - prompts leave this machine" if d.get("location") == "cloud"
+             else "this machine")
+    mode = ("FULL integration: real KV tensors are saved / restored through llama.cpp slots."
+            if d["kv_export"] else
+            "SHADOW mode: the engine hides its KV cache, so LMCache-style chunk indexing and "
+            "accounting run next to the engine's own prefix cache.")
+    lines = [f"Connected to {d['engine']} ({place}) - model {d['model']} - ctx {d['n_ctx']}", mode,
+             f"Hasher: {hasher_impl}"]
+    if d.get("kv_bytes_per_token"):
+        lines.append(f"KV size: ~{fmt_bytes(d['kv_bytes_per_token'])}/token")
+    if d.get("token_budget"):
+        lines.append(f"Prompt-token budget: {d['token_budget']:,}")
+    return "\n".join(lines)
 
 CSS = """
 .gradio-container {font-family: 'IBM Plex Sans', Helvetica, Arial, sans-serif !important;}
@@ -55,37 +112,57 @@ def build_app(state: AppState) -> gr.Blocks:
     s = state.settings
 
     # ------------------------------------------------------------- handlers
-    def connect(engine_kind, model, chunk, l1, l2, write_through, ctx, use_real_hasher):
+    def connect(*vals):
+        """Apply the whole form atomically, then (re)start the selected engine."""
+        values = form_to_values(dict(zip(FORM_FIELDS, vals)))
         with state.lock:
             if state.engine is not None:
                 state.engine.stop()
                 state.engine = None
-            s.chunk_size, s.l1_mb, s.l2_mb = int(chunk), int(l1), int(l2)
-            s.write_through, s.ctx_size = bool(write_through), int(ctx)
-            s.use_lmcache_hasher = bool(use_real_hasher)
-            s.ollama_model = (model or s.ollama_model).strip()
-            problems = s.validate()
+            problems = s.apply(values)
             if problems:
-                return "Invalid configuration:\n- " + "\n- ".join(problems)
+                return "Invalid configuration (nothing was changed):\n- " + "\n- ".join(problems)
             try:
-                eng = CachedEngine(s, make_backend(engine_kind, s))
+                eng = CachedEngine(s, make_backend(s.engine, s))
                 eng.start()
             except BackendError as exc:
                 return f"Could not start the engine:\n{exc}"
             except Exception as exc:  # pragma: no cover - defensive, surfaces in GUI
                 log.exception("connect failed")
-                return f"Unexpected error: {exc}"
+                return f"Unexpected error: {type(exc).__name__}"
             state.engine = eng
-            d = eng.backend.describe()
-            mode = ("FULL integration: real KV tensors are saved / restored through llama.cpp slots."
-                    if d["kv_export"] else
-                    "SHADOW mode: Ollama hides its KV cache, so LMCache-style chunk indexing and "
-                    "accounting run next to Ollama's own prefix cache.")
-            return (f"Connected to {d['engine']} - model {d['model']} - ctx {d['n_ctx']}\n{mode}\n"
-                    f"Hasher: {eng.hasher.impl}\nKV size: ~{fmt_bytes(d['kv_bytes_per_token'])}/token"
-                    if d["kv_bytes_per_token"] else
-                    f"Connected to {d['engine']} - model {d['model']} - ctx {d['n_ctx']}\n{mode}\n"
-                    f"Hasher: {eng.hasher.impl}")
+            return describe_connection(eng.backend.describe(), eng.hasher.impl)
+
+    def on_engine_change(engine_key):
+        vis = engine_visibility(engine_key)
+        return (gr.update(visible=vis["llamacpp"]), gr.update(visible=vis["ollama"]),
+                gr.update(visible=vis["cloud"]), gr.update(visible=vis["local_model"]),
+                gr.update(visible=vis["warning"]))
+
+    def on_provider_change(provider):
+        # Fill the URL box with the preset; the user can still overwrite it.
+        return PROVIDER_PRESETS.get(provider or "", gr.update())
+
+    def save_env(include_key, *vals):
+        """Write the form's values to ``.env`` without touching the live settings."""
+        import dataclasses
+        values = form_to_values(dict(zip(FORM_FIELDS, vals)))
+        candidate = dataclasses.replace(s)
+        problems = candidate.apply(values)
+        if problems:
+            return "Not saved - invalid configuration:\n- " + "\n- ".join(problems)
+        env = candidate.env_values(include_secrets=bool(include_key))
+        env = {k: v for k, v in env.items() if v != "" or k != "KVB_CLOUD_API_KEY"}
+        try:
+            path = update_env_file(ENV_FILE, env)
+        except (OSError, ValueError) as exc:
+            return f"Could not write {ENV_FILE.name}: {exc}"
+        note = "including the API key" if include_key and candidate.cloud_api_key else "API key NOT written"
+        return f"Saved {len(env)} setting(s) to {path.name} ({note}). Restart-safe, mode 0600."
+
+    def show_effective():
+        import json
+        return json.dumps(s.to_display(), indent=2, default=str)
 
     def disconnect():
         with state.lock:
@@ -151,8 +228,11 @@ def build_app(state: AppState) -> gr.Blocks:
         summary = (f"### {sc.title}\n{len(recs)} requests. Average TTFT: cold **{cold:.0f} ms** vs LMCache "
                    f"**{lmc:.0f} ms** -> **{sp:.1f}x** faster. Chunk hit rate **{snap['chunk_hit_rate'] * 100:.0f}%**, "
                    f"token reuse **{snap['token_reuse_ratio'] * 100:.0f}%**.")
-        if eng.backend.name == "ollama":
-            summary += "\n\n*Ollama runs in shadow mode: its own prefix cache provides the reuse, KVBridge indexes it.*"
+        if not eng.backend.supports_kv_export:
+            summary += ("\n\n*Shadow mode: the engine's own prefix cache provides the reuse, KVBridge "
+                        "indexes it.*")
+        if eng.backend.kind == "cloud":
+            summary += "\n\n*Cloud engine: these runs sent prompts to the remote service and consumed tokens.*"
         return (summary, records_table(recs), ttft_figure(recs), tokens_figure(recs),
                 chunk_map_figure(state.last_status, "(last LMCache request)"))
 
@@ -201,30 +281,124 @@ def build_app(state: AppState) -> gr.Blocks:
     with gr.Blocks(title="KVBridge - LMCache-style KV cache demo", fill_width=True) as demo:
         gr.Markdown(
             f"# KVBridge `v{__version__}`  -  *A KV Cache Management Layer for Scalable LLM Inference*\n"
-            "LMCache-style chunk hashing + tiered KV storage in front of local **llama.cpp** and **Ollama**. "
-            "100% local, no cloud.")
+            "LMCache-style chunk hashing + tiered KV storage in front of a **configurable inference "
+            "engine**: local (**llama.cpp**, **Ollama**) or any cloud **OpenAI-compatible** API. "
+            "Pick the engine below, or set it in `.env` (`KVB_ENGINE`).")
 
         with gr.Tab("1 - Engine & Cache"):
+            try:
+                start_engine = resolve_engine(s.engine).key
+            except BackendError:
+                start_engine = engine_choices()[0][1]
+            vis0 = engine_visibility(start_engine)
+            f: dict = {}                                 # form components by setting name
+            f["engine"] = gr.Radio(engine_choices(), value=start_engine, label="Inference engine",
+                                   info="llama.cpp = full KV save/restore - Ollama and cloud = shadow mode.")
+            warn = gr.Markdown(CLOUD_WARNING, visible=vis0["warning"])
             with gr.Row():
                 with gr.Column():
-                    engine_kind = gr.Radio(["llamacpp", "ollama"], value="llamacpp", label="Inference engine",
-                                           info="llama.cpp = full KV save/restore. Ollama = shadow mode.")
-                    model = gr.Textbox(value=s.ollama_model, label="Model (Ollama name; its GGUF is also used for llama.cpp)")
-                    ctx = gr.Slider(1024, 32768, value=s.ctx_size, step=1024, label="Context window (tokens)")
+                    with gr.Group(visible=vis0["local_model"]) as grp_model:
+                        f["ollama_model"] = gr.Textbox(
+                            value=s.ollama_model, label="Local model (Ollama name)",
+                            info="llama.cpp also loads this model's GGUF unless 'GGUF path' is set.")
+                    f["ctx_size"] = gr.Slider(1024, 131072, value=s.ctx_size, step=1024,
+                                              label="Context window (tokens)")
+                    f["seed"] = gr.Number(value=s.seed, precision=0, label="Sampling seed")
+                    f["request_timeout"] = gr.Number(value=s.request_timeout, label="Request timeout (s)")
                 with gr.Column():
-                    chunk = gr.Slider(16, 512, value=s.chunk_size, step=16, label="Chunk size (tokens)",
-                                      info="LMCache default is 256. Smaller = finer reuse, more index entries.")
-                    l1 = gr.Slider(0, 16384, value=s.l1_mb, step=64, label="L1 RAM tier (MB)")
-                    l2 = gr.Slider(0, 65536, value=s.l2_mb, step=256, label="L2 disk tier (MB)")
-                    wt = gr.Checkbox(value=s.write_through, label="Write-through to L2 (survives restarts)")
-                    real = gr.Checkbox(value=s.use_lmcache_hasher,
-                                       label="Use the real lmcache TokenHasher (needs the lmcache package)")
+                    f["chunk_size"] = gr.Slider(16, 512, value=s.chunk_size, step=16, label="Chunk size (tokens)",
+                                                info="LMCache default is 256. Smaller = finer reuse, more index entries.")
+                    f["l1_mb"] = gr.Slider(0, 16384, value=s.l1_mb, step=64, label="L1 RAM tier (MB)")
+                    f["l2_mb"] = gr.Slider(0, 65536, value=s.l2_mb, step=256, label="L2 disk tier (MB)")
+                    f["write_through"] = gr.Checkbox(value=s.write_through,
+                                                     label="Write-through to L2 (survives restarts)")
+                    f["use_lmcache_hasher"] = gr.Checkbox(
+                        value=s.use_lmcache_hasher,
+                        label="Use the real lmcache TokenHasher (needs the lmcache package)")
+
+            with gr.Group(visible=vis0["llamacpp"]) as grp_llama:
+                gr.Markdown("**llama.cpp settings**  (`KVB_LLAMA_*`, `KVB_MANAGED_*`, `KVB_MODEL_PATH` ...)")
+                with gr.Row():
+                    f["llama_url"] = gr.Textbox(value=s.llama_url, label="Existing llama-server URL",
+                                                info="Empty = start a managed llama-server.")
+                    f["model_path"] = gr.Textbox(value=s.model_path, label="GGUF path (optional)")
+                with gr.Row():
+                    f["llama_server_bin"] = gr.Textbox(value=s.llama_server_bin, label="llama-server binary",
+                                                       info="Empty = auto-detect.")
+                    f["llama_search_paths"] = gr.Textbox(value=s.llama_search_paths,
+                                                         label="Extra search paths (':'-separated)")
+                with gr.Row():
+                    f["managed_port"] = gr.Number(value=s.managed_port, precision=0, label="Managed server port")
+                    f["reserved_ports"] = gr.Textbox(value=s.reserved_ports, label="Reserved ports (avoid)")
+                    f["llama_start_timeout"] = gr.Number(value=s.llama_start_timeout, label="Start timeout (s)")
+                with gr.Row():
+                    f["n_gpu_layers"] = gr.Number(value=s.n_gpu_layers, precision=0,
+                                                  label="GPU layers (-1 = default)")
+                    f["cache_ram_mb"] = gr.Number(value=s.cache_ram_mb, precision=0,
+                                                  label="llama.cpp --cache-ram (MB, 0 = off)")
+                    f["extra_args"] = gr.Textbox(value=s.extra_args, label="Extra llama-server flags")
+
+            with gr.Group(visible=vis0["ollama"]) as grp_ollama:
+                gr.Markdown("**Ollama settings**  (`KVB_OLLAMA_*`)")
+                with gr.Row():
+                    f["ollama_url"] = gr.Textbox(value=s.ollama_url, label="Ollama URL")
+                    f["ollama_keep_alive"] = gr.Textbox(value=s.ollama_keep_alive, label="keep_alive")
+                    f["ollama_models_dir"] = gr.Textbox(value=s.ollama_models_dir, label="Models directory",
+                                                        info="Empty = $OLLAMA_MODELS or ~/.ollama/models")
+
+            with gr.Group(visible=vis0["cloud"]) as grp_cloud:
+                gr.Markdown("**Cloud engine settings**  (`KVB_CLOUD_*`) - any OpenAI-compatible endpoint")
+                with gr.Row():
+                    f["cloud_provider"] = gr.Dropdown(
+                        [""] + list(PROVIDER_PRESETS), value=s.cloud_provider, allow_custom_value=True,
+                        label="Provider preset", info="Fills the base URL; you can overwrite it.")
+                    f["cloud_base_url"] = gr.Textbox(value=s.cloud_base_url, label="Base URL",
+                                                     placeholder="https://api.example.com/v1")
+                    f["cloud_model"] = gr.Textbox(value=s.cloud_model, label="Model name")
+                with gr.Row():
+                    f["cloud_api_key"] = gr.Textbox(
+                        value="", type="password", label="API key",
+                        placeholder="stored" if s.resolved_cloud_key() else "paste a key",
+                        info="Never displayed or logged. Leave blank to keep the current key.")
+                    f["cloud_api_key_env"] = gr.Textbox(value=s.cloud_api_key_env, label="...or env var holding the key",
+                                                        placeholder="OPENAI_API_KEY")
+                f["cloud_extra_headers"] = gr.Textbox(value=s.cloud_extra_headers,
+                                                      label="Extra HTTP headers (JSON object)",
+                                                      placeholder='{"HTTP-Referer": "https://example.com"}')
+                with gr.Row():
+                    f["cloud_api_style"] = gr.Dropdown(list(CLOUD_API_STYLES), value=s.cloud_api_style,
+                                                       label="API style")
+                    f["cloud_max_tokens_field"] = gr.Textbox(value=s.cloud_max_tokens_field,
+                                                             label="max-tokens field name",
+                                                             info="max_tokens or max_completion_tokens")
+                    f["cloud_token_budget"] = gr.Number(value=s.cloud_token_budget, precision=0,
+                                                        label="Prompt-token budget (0 = off)")
+                    f["cloud_kv_bytes_per_token"] = gr.Number(value=s.cloud_kv_bytes_per_token, precision=0,
+                                                              label="KV bytes/token (accounting, 0 = unknown)")
+                with gr.Row():
+                    f["cloud_send_temperature"] = gr.Checkbox(value=s.cloud_send_temperature,
+                                                              label="Send temperature")
+                    f["cloud_stream_usage"] = gr.Checkbox(value=s.cloud_stream_usage,
+                                                          label="Request token usage in the stream")
+                    f["cloud_verify_tls"] = gr.Checkbox(value=s.cloud_verify_tls, label="Verify TLS certificates")
+
+            form = [f[name] for name in FORM_FIELDS]
+            f["engine"].change(on_engine_change, f["engine"], [grp_llama, grp_ollama, grp_cloud, grp_model, warn])
+            f["cloud_provider"].change(on_provider_change, f["cloud_provider"], f["cloud_base_url"])
+
             with gr.Row():
                 btn_connect = gr.Button("Connect / (re)start", variant="primary")
                 btn_disc = gr.Button("Disconnect")
+                btn_show = gr.Button("Show effective configuration")
             status = gr.Textbox(label="Status", lines=5, interactive=False)
-            btn_connect.click(connect, [engine_kind, model, chunk, l1, l2, wt, ctx, real], status)
+            with gr.Row():
+                save_key = gr.Checkbox(value=False, label="Also write the API key to .env (plain text, mode 0600)")
+                btn_save = gr.Button("Save settings to .env")
+            effective = gr.Code(label="Effective configuration (secrets masked)", language="json", interactive=False)
+            btn_connect.click(connect, form, status)
             btn_disc.click(disconnect, None, status)
+            btn_save.click(save_env, [save_key] + form, status)
+            btn_show.click(show_effective, None, effective)
 
         with gr.Tab("2 - Dashboard"):
             kpi = gr.Markdown(elem_classes="kpi")

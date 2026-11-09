@@ -193,3 +193,16 @@ def test_shadow_restart_simulation(shadow):
     msg = shadow.simulate_engine_restart()
     assert "dropped" in msg
     assert shadow.store.stats()["entries"] == 0      # virtual entries lived in RAM only
+
+
+# ------------------------------------------------------------- cloud (shadow) engine
+def test_cloud_backend_runs_in_shadow_mode(settings, fake_cloud):
+    e = CachedEngine(settings, fake_cloud)
+    e.start()
+    r1 = e.infer(prompt("a"), "lmcache")
+    r2 = e.infer(prompt("b"), "lmcache")
+    assert r1.shadow and r2.shadow and r2.chunks_hit > 10
+    assert "save" not in fake_cloud.calls and "restore" not in fake_cloud.calls
+    assert e.backend.describe()["location"] == "cloud"
+    e.infer(prompt("a"), "cold")
+    assert "reset" in fake_cloud.calls               # cold = defeat the provider's prefix cache

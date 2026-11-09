@@ -1,6 +1,8 @@
 """Inference-engine adapters.
 
-Two adapters share one small interface (:class:`Backend`):
+Three adapters share one small interface (:class:`Backend`) and are looked up
+through a registry (:func:`register_engine`, :func:`resolve_engine`), so the
+engine is chosen purely by configuration (``KVB_ENGINE`` or the GUI):
 
 ``LlamaCppBackend``
     Talks to ``llama-server`` (llama.cpp).  llama.cpp exposes the **slot
@@ -15,6 +17,13 @@ Two adapters share one small interface (:class:`Backend`):
     works in **shadow mode** - the LMCache layer indexes/accounts for chunks
     and predicts reuse, while Ollama's own prefix cache does the real work and
     its ``prompt_eval_cached_count`` is used as ground truth.
+
+``CloudBackend``
+    Talks to any **OpenAI-compatible** HTTP API (OpenAI, Groq, OpenRouter,
+    Together, Mistral, DeepSeek, vLLM, LM Studio, ...).  Hosted engines never
+    expose their KV tensors either, so it also runs in **shadow mode**; the
+    provider's own prompt-cache counter (``cached_tokens``) is the ground truth.
+    Prompts leave the machine - the GUI says so explicitly.
 """
 
 from __future__ import annotations
@@ -27,15 +36,17 @@ import shutil
 import signal
 import subprocess
 import time
+import uuid
 import zlib
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator, Optional, Sequence
+from typing import Optional, Sequence
+from urllib.parse import urlparse
 
 import requests
 
-from .config import Settings
+from .config import CLOUD_API_STYLES, DEFAULT_LLAMA_SEARCH_PATHS, Settings
 
 log = logging.getLogger(__name__)
 
@@ -59,14 +70,29 @@ class GenResult:
     decode_tps: float = 0.0
 
 
+def _is_http_url(url: str) -> bool:
+    p = urlparse(url)
+    return p.scheme in ("http", "https") and bool(p.netloc)
+
+
+def _is_loopback(url: str) -> bool:
+    return (urlparse(url).hostname or "") in ("127.0.0.1", "localhost", "::1")
+
+
 class Backend(ABC):
     """Minimal engine interface used by :class:`kvbridge.engine.CachedEngine`."""
 
     name = "backend"
+    kind = "local"                  # "local" (this machine) or "cloud" (prompts leave it)
     supports_kv_export = False      # can KV tensors be saved/restored?
     model_id = ""
     n_ctx = 0
     kv_bytes_per_token = 0
+
+    @classmethod
+    def check_settings(cls, settings: Settings) -> list[str]:
+        """Engine-specific configuration problems (no I/O)."""
+        return []
 
     @abstractmethod
     def start(self) -> None: ...
@@ -96,7 +122,7 @@ class Backend(ABC):
 
     def describe(self) -> dict:
         return {"engine": self.name, "model": self.model_id, "n_ctx": self.n_ctx,
-                "kv_export": self.supports_kv_export,
+                "kv_export": self.supports_kv_export, "location": self.kind,
                 "kv_bytes_per_token": self.kv_bytes_per_token}
 
 
@@ -104,7 +130,11 @@ class Backend(ABC):
 # Helpers shared by the adapters
 # --------------------------------------------------------------------------
 
-OLLAMA_MODELS_DIR = Path(os.environ.get("OLLAMA_MODELS", Path.home() / ".ollama" / "models"))
+def ollama_models_dir(configured: str = "") -> Path:
+    """Ollama's model store: setting > ``$OLLAMA_MODELS`` > ``~/.ollama/models``."""
+    if configured:
+        return Path(configured).expanduser()
+    return Path(os.environ.get("OLLAMA_MODELS") or (Path.home() / ".ollama" / "models"))
 
 
 def resolve_ollama_gguf(model: str, models_dir: Optional[Path] = None) -> Path:
@@ -113,7 +143,7 @@ def resolve_ollama_gguf(model: str, models_dir: Optional[Path] = None) -> Path:
     ``llama3.2:latest`` -> ``manifests/registry.ollama.ai/library/llama3.2/latest``
     whose ``application/vnd.ollama.image.model`` layer digest names the blob.
     """
-    base = Path(models_dir or OLLAMA_MODELS_DIR)
+    base = Path(models_dir) if models_dir else ollama_models_dir()
     name, _, tag = model.partition(":")
     tag = tag or "latest"
     ns = "library"
@@ -134,22 +164,25 @@ def resolve_ollama_gguf(model: str, models_dir: Optional[Path] = None) -> Path:
     return blob
 
 
-def find_llama_server(configured: str = "") -> str:
-    """Find a ``llama-server`` binary (env > PATH > Homebrew > Ollama.app)."""
+def find_llama_server(configured: str = "", extra_paths: str = "") -> str:
+    """Find a ``llama-server`` binary.
+
+    Order: ``KVB_LLAMA_SERVER_BIN`` > ``PATH`` > ``KVB_LLAMA_SEARCH_PATHS``
+    (``os.pathsep``-separated files or directories) > the built-in defaults in
+    :data:`kvbridge.config.DEFAULT_LLAMA_SEARCH_PATHS`.
+    """
     candidates = [configured] if configured else []
     which = shutil.which("llama-server")
     if which:
         candidates.append(which)
-    candidates += [
-        "/opt/homebrew/bin/llama-server",
-        "/usr/local/bin/llama-server",
-        "/Applications/Ollama.app/Contents/Resources/llama-server",
-    ]
+    for entry in [p for p in extra_paths.split(os.pathsep) if p.strip()] + list(DEFAULT_LLAMA_SEARCH_PATHS):
+        entry = os.path.expanduser(entry.strip())
+        candidates.append(os.path.join(entry, "llama-server") if Path(entry).is_dir() else entry)
     for c in candidates:
         if c and Path(c).exists() and os.access(c, os.X_OK):
             return c
     raise BackendError("llama-server not found. Install llama.cpp (`brew install llama.cpp`) "
-                       "or set KVB_LLAMA_SERVER_BIN.")
+                       "or set KVB_LLAMA_SERVER_BIN / KVB_LLAMA_SEARCH_PATHS.")
 
 
 def port_open(host: str, port: int, timeout: float = 0.3) -> bool:
@@ -170,6 +203,19 @@ class LlamaCppBackend(Backend):
     name = "llama.cpp"
     supports_kv_export = True
 
+    @classmethod
+    def check_settings(cls, s: Settings) -> list[str]:
+        if s.llama_url:                                   # attaching to an external server
+            return [] if _is_http_url(s.llama_url) else ["llama_url must be an http(s) URL"]
+        problems: list[str] = []
+        if not (1 <= s.managed_port <= 65535):
+            problems.append("managed_port must be a valid TCP port")
+        elif s.managed_port in s.reserved_port_set:
+            problems.append(f"managed_port {s.managed_port} collides with a reserved/known service")
+        if s.llama_start_timeout <= 0:
+            problems.append("llama_start_timeout must be > 0")
+        return problems
+
     def __init__(self, settings: Settings) -> None:
         self.s = settings
         self.proc: Optional[subprocess.Popen] = None
@@ -188,13 +234,13 @@ class LlamaCppBackend(Backend):
             if not p.exists():
                 raise BackendError(f"KVB_MODEL_PATH does not exist: {p}")
             return p
-        return resolve_ollama_gguf(self.s.ollama_model)
+        return resolve_ollama_gguf(self.s.ollama_model, ollama_models_dir(self.s.ollama_models_dir))
 
     def build_command(self) -> list[str]:
         model = self._model_path()
         self.model_id = model.name[:24] if self.s.model_path else self.s.ollama_model
         self.s.slot_dir.mkdir(parents=True, exist_ok=True)
-        cmd = [find_llama_server(self.s.llama_server_bin), "-m", str(model),
+        cmd = [find_llama_server(self.s.llama_server_bin, self.s.llama_search_paths), "-m", str(model),
                "--host", self.s.managed_host, "--port", str(self.s.managed_port),
                "-c", str(self.s.ctx_size), "-np", "1",
                "--slot-save-path", str(self.s.slot_dir.resolve()),
@@ -223,7 +269,7 @@ class LlamaCppBackend(Backend):
                                      start_new_session=True)
         self.s.output_dir.mkdir(parents=True, exist_ok=True)
         self.pidfile.write_text(str(self.proc.pid))
-        deadline = time.time() + 180
+        deadline = time.time() + self.s.llama_start_timeout
         while time.time() < deadline:
             if self.proc.poll() is not None:
                 raise BackendError(f"llama-server exited with code {self.proc.returncode}; "
@@ -233,7 +279,8 @@ class LlamaCppBackend(Backend):
                 return
             time.sleep(0.5)
         self.stop()
-        raise BackendError("llama-server did not become ready within 180 s")
+        raise BackendError(f"llama-server did not become ready within {self.s.llama_start_timeout:g} s "
+                           "(raise KVB_LLAMA_START_TIMEOUT for large models)")
 
     def _probe(self) -> None:
         """Discover context size and KV bytes/token from the running server."""
@@ -289,7 +336,7 @@ class LlamaCppBackend(Backend):
     def generate(self, prompt, tokens, n_predict, cache_prompt, temperature) -> GenResult:
         body = {"prompt": list(tokens) if tokens is not None else prompt, "n_predict": n_predict,
                 "cache_prompt": cache_prompt, "id_slot": 0, "stream": True,
-                "temperature": temperature, "seed": 1}
+                "temperature": temperature, "seed": self.s.seed}
         t0 = time.perf_counter()
         res, ttft, final = GenResult(), 0.0, {}
         resp = self._post("/completion", body, stream=True)
@@ -378,6 +425,15 @@ class OllamaBackend(Backend):
     name = "ollama"
     supports_kv_export = False
 
+    @classmethod
+    def check_settings(cls, s: Settings) -> list[str]:
+        problems: list[str] = []
+        if not _is_http_url(s.ollama_url):
+            problems.append("ollama_url must be an http(s) URL")
+        if not s.ollama_model:
+            problems.append("ollama_model is required for the Ollama engine")
+        return problems
+
     def __init__(self, settings: Settings) -> None:
         self.s = settings
         self.base = settings.ollama_url.rstrip("/")
@@ -420,8 +476,8 @@ class OllamaBackend(Backend):
 
     def generate(self, prompt, tokens, n_predict, cache_prompt, temperature) -> GenResult:
         body = {"model": self.model, "prompt": prompt, "raw": True, "stream": True,
-                "keep_alive": "10m",
-                "options": {"num_predict": n_predict, "temperature": temperature, "seed": 1,
+                "keep_alive": self.s.ollama_keep_alive,
+                "options": {"num_predict": n_predict, "temperature": temperature, "seed": self.s.seed,
                             "num_ctx": self.s.ctx_size}}
         t0 = time.perf_counter()
         res, ttft, final = GenResult(), 0.0, {}
@@ -464,17 +520,283 @@ class OllamaBackend(Backend):
                     break
                 time.sleep(0.25)
             self.http.post(f"{self.base}/api/generate",
-                           json={"model": self.model, "keep_alive": "10m",
+                           json={"model": self.model, "keep_alive": self.s.ollama_keep_alive,
                                  "options": {"num_ctx": self.s.ctx_size}}, timeout=120)
         except requests.RequestException as exc:
             raise BackendError(f"cannot reset Ollama cache: {exc}") from exc
 
 
+# --------------------------------------------------------------------------
+# Cloud (OpenAI-compatible HTTP API)
+# --------------------------------------------------------------------------
+
+def _cached_tokens(usage: dict) -> int:
+    """Provider-reported prompt-cache hits (OpenAI / DeepSeek / generic field names)."""
+    details = usage.get("prompt_tokens_details")
+    candidates = [details.get("cached_tokens") if isinstance(details, dict) else None,
+                  usage.get("prompt_cache_hit_tokens"), usage.get("cached_tokens")]
+    return next((int(v) for v in candidates if isinstance(v, (int, float))), 0)
+
+
+class CloudBackend(Backend):
+    """Adapter for hosted, OpenAI-compatible engines (shadow mode).
+
+    * KV tensors are not accessible, so ``supports_kv_export`` is ``False`` and the
+      KV layer indexes chunks while the provider's prefix cache does the work.
+    * ``cold`` mode prepends a random nonce to defeat the provider's prefix cache
+      (a cloud cache cannot be erased).
+    * ``cloud_token_budget`` stops the session before it spends more than the
+      configured number of prompt tokens.
+    * The API key lives only in memory / the ``Authorization`` header and is
+      scrubbed from every error message.
+    """
+
+    name = "cloud"
+    kind = "cloud"
+    supports_kv_export = False
+    _RETRY_STATUS = (429, 502, 503, 504)
+
+    @classmethod
+    def check_settings(cls, s: Settings) -> list[str]:
+        problems: list[str] = []
+        url = s.resolved_cloud_url()
+        if not url:
+            problems.append("cloud_base_url (or cloud_provider) is required for the cloud engine")
+        elif not _is_http_url(url):
+            problems.append("cloud_base_url must be an http(s) URL")
+        elif s.resolved_cloud_key() and url.startswith("http://") and not _is_loopback(url):
+            problems.append("refusing to send an API key over plain http to a non-local host; use https")
+        if not s.cloud_model:
+            problems.append("cloud_model is required for the cloud engine")
+        if s.cloud_api_style not in CLOUD_API_STYLES:
+            problems.append(f"cloud_api_style must be one of {', '.join(CLOUD_API_STYLES)}")
+        if not s.cloud_max_tokens_field:
+            problems.append("cloud_max_tokens_field must not be empty")
+        if s.cloud_token_budget < 0:
+            problems.append("cloud_token_budget must be >= 0")
+        try:
+            s.cloud_headers()
+        except ValueError:
+            problems.append("cloud_extra_headers must be a JSON object")
+        return problems
+
+    def __init__(self, settings: Settings) -> None:
+        self.s = settings
+        self.base = settings.resolved_cloud_url()
+        self.model = settings.cloud_model
+        self.host = urlparse(self.base).netloc
+        self.model_id = f"{self.model}@{self.host}" if self.host else self.model
+        self.n_ctx = settings.ctx_size
+        self.kv_bytes_per_token = settings.cloud_kv_bytes_per_token
+        self.tokens_sent = 0
+        self._bust = False
+        self.http = requests.Session()
+        self.http.verify = settings.cloud_verify_tls
+        key = settings.resolved_cloud_key()
+        if key:
+            self.http.headers["Authorization"] = f"Bearer {key}"
+        try:
+            self.http.headers.update(settings.cloud_headers())
+        except ValueError as exc:
+            raise BackendError(f"cloud_extra_headers is not valid JSON: {exc}") from exc
+
+    # -- helpers -----------------------------------------------------------
+    def _redact(self, text: str) -> str:
+        key = self.s.resolved_cloud_key()
+        return text.replace(key, "***") if len(key) >= 4 else text
+
+    def _url(self, path: str) -> str:
+        return self.base + path
+
+    def _http_error(self, r: requests.Response, what: str) -> BackendError:
+        code = r.status_code
+        if code in (401, 403):
+            return BackendError(f"authentication failed (HTTP {code}); check KVB_CLOUD_API_KEY / "
+                                "KVB_CLOUD_API_KEY_ENV and the provider/base URL")
+        if code == 404:
+            return BackendError(f"{what}: HTTP 404 - endpoint or model '{self.model}' not found at {self.base}")
+        if code == 429:
+            return BackendError(f"{what}: rate limit or quota exceeded (HTTP 429)")
+        return BackendError(f"{what}: HTTP {code}: {self._redact(str(r.text))[:200]}")
+
+    # -- lifecycle -----------------------------------------------------------
+    def start(self) -> None:
+        if not self.base:
+            raise BackendError("no cloud endpoint configured (KVB_CLOUD_BASE_URL or KVB_CLOUD_PROVIDER)")
+        try:
+            r = self.http.get(self._url("/models"), timeout=min(self.s.request_timeout, 30))
+        except requests.RequestException as exc:
+            raise BackendError(f"cloud endpoint not reachable at {self.base}: {self._redact(str(exc))}") from exc
+        if r.status_code in (401, 403):
+            raise self._http_error(r, "model listing")
+        if r.status_code >= 500:
+            raise self._http_error(r, "model listing")
+        if r.status_code == 200:
+            try:
+                ids = {m.get("id") for m in r.json().get("data", []) if isinstance(m, dict)}
+            except (ValueError, AttributeError):
+                ids = set()
+            if ids and self.model not in ids:
+                log.warning("model '%s' is not in the provider's model list (aliases are fine)", self.model)
+
+    def stop(self) -> None:  # hosted service - nothing to stop
+        pass
+
+    def is_ready(self) -> bool:
+        try:
+            r = self.http.get(self._url("/models"), timeout=5)
+            return r.status_code < 400 or r.status_code in (404, 405)
+        except requests.RequestException:
+            return False
+
+    def tokenize(self, text: str) -> list[int]:
+        return pseudo_tokenize(text)
+
+    def reset_native_cache(self) -> None:
+        """A hosted cache cannot be erased: make the *next* prompt unique instead."""
+        self._bust = True
+
+    # -- generation ------------------------------------------------------------
+    def _body(self, text: str, n_predict: int, temperature: float) -> tuple[str, dict]:
+        chat = self.s.cloud_api_style == "chat"
+        body: dict = {"model": self.model, "stream": True, self.s.cloud_max_tokens_field: n_predict}
+        if chat:
+            body["messages"] = [{"role": "user", "content": text}]
+        else:
+            body["prompt"] = text
+        if self.s.cloud_send_temperature:
+            body["temperature"] = temperature
+        if self.s.cloud_stream_usage:
+            body["stream_options"] = {"include_usage": True}
+        return ("/chat/completions" if chat else "/completions"), body
+
+    def _open_stream(self, path: str, body: dict) -> requests.Response:
+        attempts = 3
+        for i in range(attempts):
+            try:
+                r = self.http.post(self._url(path), json=body, stream=True, timeout=self.s.request_timeout)
+            except requests.RequestException as exc:
+                raise BackendError(f"cloud request failed: {self._redact(str(exc))}") from exc
+            if r.status_code in self._RETRY_STATUS and i < attempts - 1:
+                wait = str((getattr(r, "headers", None) or {}).get("Retry-After", ""))
+                time.sleep(min(float(wait) if wait.replace(".", "", 1).isdigit() else 2.0 ** i, 10.0))
+                continue
+            break
+        if r.status_code >= 400:
+            raise self._http_error(r, "completion request")
+        return r
+
+    def generate(self, prompt, tokens, n_predict, cache_prompt, temperature) -> GenResult:
+        budget = self.s.cloud_token_budget
+        if budget and self.tokens_sent >= budget:
+            raise BackendError(f"cloud token budget exhausted ({self.tokens_sent:,} >= {budget:,} prompt "
+                               "tokens); raise KVB_CLOUD_TOKEN_BUDGET or reconnect to reset it")
+        text = prompt
+        if self._bust:                                   # cold mode: defeat provider prefix caching
+            text, self._bust = f"[nonce {uuid.uuid4().hex[:12]}]\n{prompt}", False
+        path, body = self._body(text, n_predict, temperature)
+        chat = self.s.cloud_api_style == "chat"
+        t0 = time.perf_counter()
+        res, ttft, usage = GenResult(), 0.0, {}
+        resp = self._open_stream(path, body)
+        for line in resp.iter_lines():
+            if not line or not line.startswith(b"data:"):          # blanks and ": keep-alive" comments
+                continue
+            payload = line[5:].strip()
+            if payload == b"[DONE]":
+                break
+            try:
+                msg = json.loads(payload)
+            except ValueError:
+                continue
+            if isinstance(msg.get("error"), dict) or isinstance(msg.get("error"), str):
+                raise BackendError(f"cloud error: {self._redact(str(msg['error']))[:200]}")
+            usage = msg.get("usage") or usage
+            choices = msg.get("choices") or []
+            if not choices:
+                continue
+            piece = (choices[0].get("delta") or {}).get("content") if chat else choices[0].get("text")
+            if piece:
+                if not ttft:
+                    ttft = (time.perf_counter() - t0) * 1000
+                res.text += piece
+        res.total_ms = (time.perf_counter() - t0) * 1000
+        res.ttft_ms = ttft or res.total_ms
+        res.prompt_tokens = int(usage.get("prompt_tokens") or len(pseudo_tokenize(text)))
+        res.cached_tokens = min(_cached_tokens(usage), res.prompt_tokens)
+        res.computed_tokens = res.prompt_tokens - res.cached_tokens
+        res.prefill_ms = res.ttft_ms
+        res.generated_tokens = int(usage.get("completion_tokens") or len(res.text.split()))
+        decode_ms = res.total_ms - res.ttft_ms
+        res.decode_tps = res.generated_tokens / (decode_ms / 1000) if decode_ms > 1 else 0.0
+        self.tokens_sent += res.prompt_tokens
+        return res
+
+    def describe(self) -> dict:
+        d = super().describe()
+        d.update({"endpoint": self.host, "tokens_sent": self.tokens_sent,
+                  "token_budget": self.s.cloud_token_budget})
+        return d
+
+
+# --------------------------------------------------------------------------
+# Engine registry - the only place that knows which engines exist
+# --------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class EngineSpec:
+    """One selectable inference engine."""
+
+    key: str                      # value of KVB_ENGINE
+    label: str                    # shown in the GUI
+    cls: type[Backend]
+    blurb: str = ""
+    aliases: tuple[str, ...] = ()
+
+    @property
+    def location(self) -> str:
+        return self.cls.kind
+
+
+_REGISTRY: dict[str, EngineSpec] = {}
+
+
+def _norm(kind: str) -> str:
+    return re.sub(r"[.\-_\s]", "", (kind or "").lower())
+
+
+def register_engine(spec: EngineSpec) -> EngineSpec:
+    """Add (or replace) an engine; new adapters only need a :class:`Backend` subclass."""
+    _REGISTRY[_norm(spec.key)] = spec
+    return spec
+
+
+def engine_specs() -> list[EngineSpec]:
+    return list(_REGISTRY.values())
+
+
+def engine_choices() -> list[tuple[str, str]]:
+    """``(label, key)`` pairs for UI selectors."""
+    return [(s.label, s.key) for s in _REGISTRY.values()]
+
+
+def resolve_engine(kind: str) -> EngineSpec:
+    k = _norm(kind)
+    for spec in _REGISTRY.values():
+        if k == _norm(spec.key) or k in {_norm(a) for a in spec.aliases}:
+            return spec
+    raise BackendError(f"unknown engine '{kind}' (expected one of: {', '.join(_REGISTRY)})")
+
+
 def make_backend(kind: str, settings: Settings) -> Backend:
-    """Factory: ``llamacpp`` or ``ollama``."""
-    k = kind.lower().replace(".", "").replace("-", "").replace("_", "")
-    if k in ("llamacpp", "llama"):
-        return LlamaCppBackend(settings)
-    if k == "ollama":
-        return OllamaBackend(settings)
-    raise BackendError(f"unknown engine '{kind}' (expected 'llamacpp' or 'ollama')")
+    """Factory: instantiate the registered engine called *kind*."""
+    return resolve_engine(kind).cls(settings)
+
+
+register_engine(EngineSpec("llamacpp", "llama.cpp (local)", LlamaCppBackend,
+                           "Full KV save/restore through llama-server slots.", ("llama",)))
+register_engine(EngineSpec("ollama", "Ollama (local)", OllamaBackend,
+                           "Shadow mode: Ollama hides its KV cache.", ()))
+register_engine(EngineSpec("cloud", "Cloud / OpenAI-compatible API", CloudBackend,
+                           "Shadow mode against a hosted engine; prompts leave this machine.",
+                           ("openai", "api", "openaicompatible")))

@@ -88,20 +88,20 @@
 <!-- ======================= NAVIGATION ======================= -->
 <nav class="side" aria-label="Table of contents">
   <p class="brand">KVBridge</p>
-  <div class="tag">Developer documentation &middot; v1.0.0</div>
+  <div class="tag">Developer documentation &middot; v1.1.0</div>
   <ol>
     <li><a href="#overview">1. Overview &amp; purpose</a>
       <ol><li><a href="#overview-why">Why it exists</a></li><li><a href="#overview-feasibility">Feasibility findings</a></li><li><a href="#overview-results">Measured results</a></li></ol></li>
     <li><a href="#architecture">2. System architecture</a>
-      <ol><li><a href="#arch-diagram">Component diagram</a></li><li><a href="#arch-modules">Module reference</a></li><li><a href="#arch-hashing">Hashing &amp; keys</a></li><li><a href="#arch-store">Tiered store</a></li><li><a href="#arch-engine">Cached engine &amp; modes</a></li><li><a href="#arch-config">Configuration</a></li></ol></li>
+      <ol><li><a href="#arch-diagram">Component diagram</a></li><li><a href="#arch-modules">Module reference</a></li><li><a href="#arch-hashing">Hashing &amp; keys</a></li><li><a href="#arch-store">Tiered store</a></li><li><a href="#arch-engine">Cached engine &amp; modes</a></li><li><a href="#arch-config">Configuration</a></li><li><a href="#arch-registry">Engine registry</a></li><li><a href="#arch-examples">Examples &amp; scenarios</a></li></ol></li>
     <li><a href="#lifecycle">3. Lifecycle management</a>
       <ol><li><a href="#life-startup">Startup sequence</a></li><li><a href="#life-sigterm">SIGTERM handling</a></li><li><a href="#life-states">Process states</a></li></ol></li>
     <li><a href="#gui">4. GUI implementation</a>
       <ol><li><a href="#gui-tabs">Tabs</a></li><li><a href="#gui-state">AppState &amp; connect</a></li><li><a href="#gui-about">About tab</a></li></ol></li>
     <li><a href="#tests">5. Test suite</a>
-      <ol><li><a href="#tests-unit">Unit tests (125)</a></li><li><a href="#tests-live">Live tests (128)</a></li><li><a href="#tests-run">Running</a></li></ol></li>
-    <li><a href="#servers">6. Server integration</a>
-      <ol><li><a href="#srv-llama">llama.cpp</a></li><li><a href="#srv-ollama">Ollama</a></li><li><a href="#srv-compare">Comparison</a></li></ol></li>
+      <ol><li><a href="#tests-unit">Unit tests (183)</a></li><li><a href="#tests-live">Live tests (187)</a></li><li><a href="#tests-run">Running</a></li></ol></li>
+    <li><a href="#servers">6. Engine integration</a>
+      <ol><li><a href="#srv-llama">llama.cpp</a></li><li><a href="#srv-ollama">Ollama</a></li><li><a href="#srv-cloud">Cloud</a></li><li><a href="#srv-compare">Comparison</a></li></ol></li>
     <li><a href="#connection">7. Connection flow</a>
       <ol><li><a href="#conn-flow">Connect sequence</a></li><li><a href="#conn-spawn">Managed spawn</a></li></ol></li>
     <li><a href="#shutdown">8. Shutdown &amp; orphans</a>
@@ -116,9 +116,9 @@
 <main>
 <header>
   <h1>KVBridge &mdash; Developer Documentation</h1>
-  <p class="lead">An LMCache-style KV cache management layer for local LLM inference engines
-  (<strong>llama.cpp</strong> and <strong>Ollama</strong>), with a Gradio GUI that makes cache hits, tier usage and latency gains visible.</p>
-  <div class="badges"><span>Python 3.12</span><span>Gradio 6</span><span>blake3</span><span>llama.cpp slots API</span><span>Ollama REST</span><span>Apache-2.0</span><span>macOS / Linux, no cloud</span></div>
+  <p class="lead">An LMCache-style KV cache management layer for <strong>local</strong> (llama.cpp, Ollama) and <strong>cloud</strong> (OpenAI-compatible) LLM inference engines,
+  with a Gradio GUI that makes cache hits, tier usage and latency gains visible. The engine is chosen and configured in the GUI or in <code>.env</code>; nothing is hard-coded.</p>
+  <div class="badges"><span>Python 3.12</span><span>Gradio 6</span><span>blake3</span><span>llama.cpp slots API</span><span>Ollama REST</span><span>OpenAI-compatible API</span><span>Apache-2.0</span><span>macOS / Linux, cloud optional</span></div>
 </header>
 
 <!-- ======================= 1. OVERVIEW ======================= -->
@@ -128,7 +128,7 @@
 <em>a KV cache management layer for scalable LLM inference</em> &mdash; on a developer laptop.
 LMCache itself targets server-side engines (vLLM, SGLang, TensorRT-LLM) and needs CUDA. KVBridge
 <strong>re-implements the LMCache concepts</strong> (chunked, content-addressed KV reuse; tiered storage; engine-independent keys)
-on top of the two local engines most developers actually run.</p>
+on top of the engines developers actually run: two local ones (llama.cpp, Ollama) and any OpenAI-compatible cloud service, all behind one pluggable engine registry.</p>
 
 <div class="note"><b>What KVBridge is, and is not</b>
 KVBridge is an LMCache-<em>style</em> implementation. It is <strong>not</strong> the LMCache package. It optionally reuses LMCache's
@@ -153,9 +153,10 @@ visible and measurable with three comparable modes:</p>
   <tr><td>Can the PyPI wheel run on macOS?</td><td><span class="pill no">No</span> Wheels are manylinux-only and require CUDA (<code>CUDA_HOME not set</code>).</td></tr>
   <tr><td>Can LMCache's hasher be used standalone?</td><td><span class="pill part">Partly</span> With <code>NO_GPU_EXT=1</code> plus extra dependencies the native <code>TokenHasher</code> builds.</td></tr>
   <tr><td>Can llama.cpp export/import KV state?</td><td><span class="pill ok">Yes</span> <code>/slots/{id}?action=save|restore|erase</code> with <code>--slot-save-path</code>, plus <code>/tokenize</code> for exact token ids.</td></tr>
+  <tr><td>Can a hosted (cloud) API export/import KV state?</td><td><span class="pill no">No</span> Never. Providers run their own prefix cache and report <code>cached_tokens</code>, enabling the same accounting-only <em>shadow mode</em>.</td></tr>
   <tr><td>Can Ollama export/import KV state?</td><td><span class="pill no">No</span> No public KV API. It does report <code>prompt_eval_cached_count</code>, enabling an accounting-only <em>shadow mode</em>.</td></tr>
 </table>
-<p>Conclusion: <strong>full integration with llama.cpp</strong> (real tensors saved/restored) and <strong>shadow-mode integration with Ollama</strong>.</p>
+<p>Conclusion: <strong>full integration with llama.cpp</strong> (real tensors saved/restored) and <strong>shadow-mode integration with Ollama and cloud APIs</strong>. Cloud use sends prompts off the machine and is billed; see &sect;6.3.</p>
 
 <h3 id="overview-results">1.3 Measured results</h3>
 <p>Apple Silicon, <code>llama3.2</code> 3B Q4_K_M (28 layers, 8 KV heads, head dim 128). Doc Q&amp;A scenario: ~1.9k-token document, 4 questions per mode, 12 requests.</p>
@@ -185,49 +186,55 @@ the lmcache advantage is <em>persistence and capacity</em> (survives restart, sp
 
 <h3 id="arch-diagram">2.1 Component diagram</h3>
 <figure>
-<svg viewBox="0 0 860 430" width="860" role="img" aria-label="KVBridge component diagram" font-family="-apple-system,Segoe UI,sans-serif" font-size="13">
+<svg viewBox="0 0 860 495" width="860" role="img" aria-label="KVBridge component diagram" font-family="-apple-system,Segoe UI,sans-serif" font-size="13">
   <defs><marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#59636e"/></marker></defs>
   <rect x="10" y="10" width="840" height="64" rx="8" fill="#edf5ff" stroke="#0f62fe"/>
-  <text x="430" y="34" text-anchor="middle" font-weight="700" fill="#0f62fe">Gradio GUI &mdash; kvbridge/app.py</text>
-  <text x="430" y="55" text-anchor="middle" fill="#1f2328">Engine &amp; Cache &middot; Dashboard &middot; Playground &middot; Scenarios &middot; Cache Inspector &middot; About</text>
+  <text x="430" y="34" text-anchor="middle" font-weight="700" fill="#0f62fe">Gradio GUI &#8212; kvbridge/app.py</text>
+  <text x="430" y="55" text-anchor="middle" fill="#1f2328">Engine &amp; Cache (engine radio + per-engine settings) &#183; Dashboard &#183; Playground &#183; Scenarios &#183; Cache Inspector &#183; About</text>
   <rect x="10" y="100" width="260" height="70" rx="8" fill="#f6f8fa" stroke="#8c959f"/>
-  <text x="140" y="124" text-anchor="middle" font-weight="700">scenarios.py</text><text x="140" y="145" text-anchor="middle" fill="#59636e">doc_qa &middot; multi_turn &middot; shared sys &middot; restart</text>
+  <text x="140" y="124" text-anchor="middle" font-weight="700">scenarios.py</text><text x="140" y="145" text-anchor="middle" fill="#59636e">doc_qa &#183; multi_turn &#183; shared sys &#183; restart</text>
   <rect x="300" y="100" width="260" height="70" rx="8" fill="#f6f8fa" stroke="#8c959f"/>
-  <text x="430" y="124" text-anchor="middle" font-weight="700">charts.py</text><text x="430" y="145" text-anchor="middle" fill="#59636e">Plotly figures &middot; KPI &middot; tables</text>
+  <text x="430" y="124" text-anchor="middle" font-weight="700">charts.py</text><text x="430" y="145" text-anchor="middle" fill="#59636e">Plotly figures &#183; KPI &#183; tables</text>
   <rect x="590" y="100" width="260" height="70" rx="8" fill="#f6f8fa" stroke="#8c959f"/>
-  <text x="720" y="124" text-anchor="middle" font-weight="700">metrics.py</text><text x="720" y="145" text-anchor="middle" fill="#59636e">RequestRecord &middot; Metrics.export()</text>
+  <text x="720" y="124" text-anchor="middle" font-weight="700">metrics.py</text><text x="720" y="145" text-anchor="middle" fill="#59636e">RequestRecord &#183; Metrics.export()</text>
   <rect x="200" y="205" width="460" height="86" rx="8" fill="#fff" stroke="#0f62fe" stroke-width="2"/>
-  <text x="430" y="230" text-anchor="middle" font-weight="700" fill="#0f62fe">CachedEngine &mdash; engine.py</text>
+  <text x="430" y="230" text-anchor="middle" font-weight="700" fill="#0f62fe">CachedEngine &#8212; engine.py</text>
   <text x="430" y="251" text-anchor="middle" fill="#1f2328">modes: cold | native | lmcache</text>
-  <text x="430" y="271" text-anchor="middle" fill="#59636e">_infer_full (KV export) &middot; _infer_shadow (accounting)</text>
-  <rect x="10" y="325" width="200" height="90" rx="8" fill="#f6f8fa" stroke="#8c959f"/>
-  <text x="110" y="349" text-anchor="middle" font-weight="700">hashing.py</text><text x="110" y="370" text-anchor="middle" fill="#59636e">blake3 rolling prefix hash</text><text x="110" y="388" text-anchor="middle" fill="#59636e">LMCache adapter (optional)</text>
-  <rect x="235" y="325" width="200" height="90" rx="8" fill="#f6f8fa" stroke="#8c959f"/>
-  <text x="335" y="349" text-anchor="middle" font-weight="700">store.py</text><text x="335" y="370" text-anchor="middle" fill="#59636e">TieredStore</text><text x="335" y="388" text-anchor="middle" fill="#59636e">L1 RAM &rarr; L2 disk (LRU)</text>
-  <rect x="460" y="325" width="190" height="90" rx="8" fill="#f6f8fa" stroke="#8c959f"/>
-  <text x="555" y="349" text-anchor="middle" font-weight="700">LlamaCppBackend</text><text x="555" y="370" text-anchor="middle" fill="#59636e">backends.py</text><text x="555" y="388" text-anchor="middle" fill="#198038">KV export: yes</text>
-  <rect x="670" y="325" width="180" height="90" rx="8" fill="#f6f8fa" stroke="#8c959f"/>
-  <text x="760" y="349" text-anchor="middle" font-weight="700">OllamaBackend</text><text x="760" y="370" text-anchor="middle" fill="#59636e">backends.py</text><text x="760" y="388" text-anchor="middle" fill="#a2191f">KV export: no (shadow)</text>
+  <text x="430" y="271" text-anchor="middle" fill="#59636e">_infer_full (KV export) &#183; _infer_shadow (accounting)</text>
+  <rect x="10" y="325" width="150" height="90" rx="8" fill="#f6f8fa" stroke="#8c959f"/>
+  <text x="85" y="349" text-anchor="middle" font-weight="700">hashing.py</text><text x="85" y="370" text-anchor="middle" fill="#59636e">blake3 rolling hash</text><text x="85" y="388" text-anchor="middle" fill="#59636e">LMCache adapter</text>
+  <rect x="175" y="325" width="150" height="90" rx="8" fill="#f6f8fa" stroke="#8c959f"/>
+  <text x="250" y="349" text-anchor="middle" font-weight="700">store.py</text><text x="250" y="370" text-anchor="middle" fill="#59636e">TieredStore</text><text x="250" y="388" text-anchor="middle" fill="#59636e">L1 RAM &#8594; L2 disk</text>
+  <rect x="340" y="325" width="170" height="90" rx="8" fill="#f6f8fa" stroke="#8c959f"/>
+  <text x="425" y="349" text-anchor="middle" font-weight="700">LlamaCppBackend</text><text x="425" y="370" text-anchor="middle" fill="#59636e">local</text><text x="425" y="388" text-anchor="middle" fill="#198038">KV export: yes</text>
+  <rect x="525" y="325" width="155" height="90" rx="8" fill="#f6f8fa" stroke="#8c959f"/>
+  <text x="602" y="349" text-anchor="middle" font-weight="700">OllamaBackend</text><text x="602" y="370" text-anchor="middle" fill="#59636e">local</text><text x="602" y="388" text-anchor="middle" fill="#a2191f">KV export: no (shadow)</text>
+  <rect x="695" y="325" width="155" height="90" rx="8" fill="#fff8e6" stroke="#d2a106"/>
+  <text x="772" y="349" text-anchor="middle" font-weight="700">CloudBackend</text><text x="772" y="370" text-anchor="middle" fill="#8e6a00">cloud (OpenAI API)</text><text x="772" y="388" text-anchor="middle" fill="#a2191f">KV export: no (shadow)</text>
+  <rect x="200" y="440" width="650" height="46" rx="8" fill="#f3ecff" stroke="#8a3ffc"/>
+  <text x="525" y="460" text-anchor="middle" font-weight="700" fill="#8a3ffc">config.py Settings (GUI &gt; env &gt; .env &gt; defaults) &#8594; engine registry in backends.py</text>
+  <text x="525" y="477" text-anchor="middle" fill="#59636e">register_engine &#183; resolve_engine &#183; make_backend &#183; Backend.check_settings</text>
   <g stroke="#59636e" stroke-width="1.5" fill="none" marker-end="url(#ar)">
     <path d="M430 74 V205"/><path d="M140 170 V190 H330 V205"/><path d="M720 170 V190 H530 V205"/>
-    <path d="M300 291 V308 H110 V325"/><path d="M360 291 V325"/><path d="M500 291 V308 H555 V325"/><path d="M580 291 V308 H760 V325"/>
+    <path d="M300 291 V308 H85 V325"/><path d="M340 291 V308 H250 V325"/><path d="M400 291 V325"/><path d="M540 291 V308 H602 V325"/><path d="M620 291 V308 H772 V325"/>
+    <path d="M525 440 V418" stroke-dasharray="5 3"/>
   </g>
 </svg>
-<figcaption>Figure 1 &mdash; The GUI drives <code>CachedEngine</code>, which composes hashing, the tiered store and one backend.</figcaption>
+<figcaption>Figure 1 &mdash; The GUI drives <code>CachedEngine</code>, which composes hashing, the tiered store and one backend chosen through the engine registry from <code>Settings</code>.</figcaption>
 </figure>
 
 <h3 id="arch-modules">2.2 Module reference</h3>
 <table>
   <tr><th>Module</th><th>Responsibility</th><th>Key symbols</th></tr>
-  <tr><td><code>config.py</code></td><td>Env/.env settings and validation</td><td><code>Settings.from_env()</code>, <code>Settings.validate()</code></td></tr>
+  <tr><td><code>config.py</code></td><td>Settings from GUI / env / <code>.env</code>, validation, secret masking, <code>.env</code> writer, provider presets</td><td><code>Settings.from_env / apply / validate / to_display / env_values</code>, <code>update_env_file()</code>, <code>PROVIDER_PRESETS</code></td></tr>
   <tr><td><code>hashing.py</code></td><td>Chunk keys</td><td><code>ChunkHasher</code>, <code>LMCacheHasherAdapter</code>, <code>make_hasher()</code>, <code>common_prefix_len()</code></td></tr>
   <tr><td><code>store.py</code></td><td>L1/L2 storage, LRU, persisted index</td><td><code>TieredStore.lookup / fetch / put / resize / clear / stats / entries</code></td></tr>
-  <tr><td><code>backends.py</code></td><td>Engine adapters and server management</td><td><code>LlamaCppBackend</code>, <code>OllamaBackend</code>, <code>BackendError</code></td></tr>
+  <tr><td><code>backends.py</code></td><td>Engine adapters, engine registry, server management</td><td><code>LlamaCppBackend</code>, <code>OllamaBackend</code>, <code>CloudBackend</code>, <code>EngineSpec</code>, <code>register_engine</code>, <code>resolve_engine</code>, <code>engine_choices</code>, <code>make_backend</code>, <code>BackendError</code></td></tr>
   <tr><td><code>engine.py</code></td><td>Mode routing, cache orchestration</td><td><code>CachedEngine.infer</code>, <code>_infer_full</code>, <code>_infer_shadow</code>, <code>simulate_engine_restart</code></td></tr>
   <tr><td><code>metrics.py</code></td><td>Per-request records, JSON export</td><td><code>RequestRecord</code>, <code>Metrics.export(dir)</code></td></tr>
   <tr><td><code>charts.py</code></td><td>Gradio-free figure builders</td><td><code>ttft_figure</code>, <code>tokens_figure</code>, <code>hit_rate_figure</code>, <code>tier_figure</code>, <code>chunk_map_figure</code>, <code>mode_compare_figure</code>, <code>kpi_markdown</code>, <code>fmt_bytes</code></td></tr>
   <tr><td><code>scenarios.py</code></td><td>Reproducible demos</td><td><code>SCENARIOS</code>, <code>load_documents()</code></td></tr>
-  <tr><td><code>app.py</code></td><td>Gradio UI, <code>AppState</code>, <code>main()</code></td><td><code>build_app()</code>, <code>main()</code></td></tr>
+  <tr><td><code>app.py</code></td><td>Gradio UI generated from the registry, <code>AppState</code>, <code>main()</code></td><td><code>build_app()</code>, <code>FORM_FIELDS</code>, <code>form_to_values</code>, <code>engine_visibility</code>, <code>describe_connection</code>, <code>main()</code></td></tr>
 </table>
 
 <h3 id="arch-hashing">2.3 Hashing &amp; cache keys</h3>
@@ -299,19 +306,68 @@ h_i = blake3( h_{i-1} || pack_be_uint32(chunk_i) )
 <div class="note"><b>Granularity</b> Chunk hashes are used for <em>matching</em> (how much of a prefix is covered). Storage granularity is a whole-slot snapshot, because llama.cpp saves/restores a slot, not individual chunks.</div>
 
 <h3 id="arch-config">2.6 Configuration</h3>
-<p>All settings come from <code>KVB_*</code> environment variables or <code>.env</code> (copy <code>.env.example</code>). Nothing is hard-coded.</p>
+<p>Every engine setting can be changed in the <strong>GUI</strong> (tab <em>1 &mdash; Engine &amp; Cache</em>) or through <code>KVB_*</code> environment variables / <code>.env</code>
+(copy <code>.env.example</code>, which documents every variable and is covered by a test). Nothing is hard-coded: engine choice, binary search paths, start timeout,
+reserved ports, Ollama keep-alive and models directory, sampling seed and all cloud parameters are settings.</p>
+
+<div class="note"><b>Precedence (highest first)</b>
+1&nbsp;&mdash; values applied in the GUI for this session &nbsp;&rarr;&nbsp; 2&nbsp;&mdash; process environment variables &nbsp;&rarr;&nbsp; 3&nbsp;&mdash; <code>.env</code> file &nbsp;&rarr;&nbsp; 4&nbsp;&mdash; built-in defaults.
+<em>Save settings to .env</em> turns (1) into (3) permanently.</div>
+
+<h4>Engine selection</h4>
 <table>
   <tr><th>Variable</th><th>Default</th><th>Meaning</th></tr>
-  <tr><td><code>KVB_LLAMA_SERVER_BIN</code></td><td><em>auto</em></td><td>Path to <code>llama-server</code> (else PATH, Homebrew, <code>Ollama.app</code>)</td></tr>
+  <tr><td><code>KVB_ENGINE</code></td><td><code>llamacpp</code></td><td><code>llamacpp</code> (alias <code>llama</code>), <code>ollama</code> or <code>cloud</code> (aliases <code>openai</code>, <code>api</code>, <code>openaicompatible</code>). Names are case-, dot- and dash-insensitive.</td></tr>
+</table>
+
+<h4>llama.cpp (local, full integration)</h4>
+<table>
+  <tr><th>Variable</th><th>Default</th><th>Meaning</th></tr>
+  <tr><td><code>KVB_LLAMA_SERVER_BIN</code></td><td><em>auto</em></td><td>Path to <code>llama-server</code></td></tr>
+  <tr><td><code>KVB_LLAMA_SEARCH_PATHS</code></td><td><em>built-in list</em></td><td>Extra directories/files probed when auto-detecting (PATH, Homebrew, <code>Ollama.app</code> by default)</td></tr>
   <tr><td><code>KVB_LLAMA_URL</code></td><td><em>empty</em></td><td>Attach to an external llama-server (disables managed spawn / restart)</td></tr>
-  <tr><td><code>KVB_OLLAMA_URL</code> / <code>KVB_OLLAMA_MODEL</code></td><td><code>http://127.0.0.1:11434</code> / <code>llama3.2:latest</code></td><td>Ollama endpoint and model</td></tr>
+  <tr><td><code>KVB_LLAMA_START_TIMEOUT</code></td><td><code>180</code></td><td>Seconds to wait for the managed server to become healthy</td></tr>
   <tr><td><code>KVB_MODEL_PATH</code></td><td><em>empty</em></td><td>Explicit GGUF; empty resolves the Ollama model blob</td></tr>
-  <tr><td><code>KVB_MANAGED_HOST</code> / <code>KVB_MANAGED_PORT</code></td><td><code>127.0.0.1</code> / <code>8089</code></td><td>Managed server bind (ports 5000, 8080, 9931, 11434 rejected)</td></tr>
-  <tr><td><code>KVB_CTX_SIZE</code></td><td><code>8192</code></td><td>Context size (must be &ge; chunk size)</td></tr>
+  <tr><td><code>KVB_MANAGED_HOST</code> / <code>KVB_MANAGED_PORT</code></td><td><code>127.0.0.1</code> / <code>8089</code></td><td>Managed server bind</td></tr>
+  <tr><td><code>KVB_RESERVED_PORTS</code></td><td><code>5000,8080,9931,11434</code></td><td>Ports the managed server must not use</td></tr>
   <tr><td><code>KVB_N_GPU_LAYERS</code></td><td><code>-1</code></td><td><code>-ngl</code> added only when &ge; 0</td></tr>
   <tr><td><code>KVB_CACHE_RAM_MB</code></td><td><code>0</code></td><td>llama.cpp's own RAM prompt cache (0 keeps comparisons honest)</td></tr>
   <tr><td><code>KVB_EXTRA_ARGS</code></td><td><em>empty</em></td><td>Extra server flags</td></tr>
+</table>
+
+<h4>Ollama (local, shadow mode)</h4>
+<table>
+  <tr><th>Variable</th><th>Default</th><th>Meaning</th></tr>
+  <tr><td><code>KVB_OLLAMA_URL</code></td><td><code>http://127.0.0.1:11434</code></td><td>Ollama endpoint</td></tr>
+  <tr><td><code>KVB_OLLAMA_MODEL</code></td><td><code>llama3.2:latest</code></td><td>Model (also used to locate the GGUF for llama.cpp)</td></tr>
+  <tr><td><code>KVB_OLLAMA_KEEP_ALIVE</code></td><td><code>10m</code></td><td><code>keep_alive</code> sent when the model is loaded</td></tr>
+  <tr><td><code>KVB_OLLAMA_MODELS_DIR</code></td><td><em>empty</em></td><td>Models directory (empty = <code>$OLLAMA_MODELS</code> or <code>~/.ollama/models</code>)</td></tr>
+</table>
+
+<h4>Cloud (OpenAI-compatible, shadow mode)</h4>
+<table>
+  <tr><th>Variable</th><th>Default</th><th>Meaning</th></tr>
+  <tr><td><code>KVB_CLOUD_PROVIDER</code></td><td><em>empty</em></td><td>Preset: <code>openai</code>, <code>groq</code>, <code>openrouter</code>, <code>together</code>, <code>mistral</code>, <code>deepseek</code>, <code>vllm-local</code>, <code>lmstudio-local</code>, <code>ollama-local-openai</code></td></tr>
+  <tr><td><code>KVB_CLOUD_BASE_URL</code></td><td><em>from preset</em></td><td>Base URL (usually ending in <code>/v1</code>); overrides the preset</td></tr>
+  <tr><td><code>KVB_CLOUD_MODEL</code></td><td><em>empty</em></td><td>Model id (required)</td></tr>
+  <tr><td><code>KVB_CLOUD_API_KEY</code></td><td><em>empty</em></td><td>API key. Prefer the next variable so no secret sits in a file</td></tr>
+  <tr><td><code>KVB_CLOUD_API_KEY_ENV</code></td><td><em>empty</em></td><td><strong>Name</strong> of an environment variable that holds the key (e.g. <code>OPENAI_API_KEY</code>)</td></tr>
+  <tr><td><code>KVB_CLOUD_EXTRA_HEADERS</code></td><td><em>empty</em></td><td>JSON object of extra HTTP headers (e.g. <code>{"HTTP-Referer": "..."}</code>)</td></tr>
+  <tr><td><code>KVB_CLOUD_API_STYLE</code></td><td><code>chat</code></td><td><code>chat</code> (<code>/chat/completions</code>) or <code>completions</code></td></tr>
+  <tr><td><code>KVB_CLOUD_MAX_TOKENS_FIELD</code></td><td><code>max_tokens</code></td><td>Field name for the output limit (<code>max_completion_tokens</code> on newer OpenAI models)</td></tr>
+  <tr><td><code>KVB_CLOUD_SEND_TEMPERATURE</code></td><td><code>true</code></td><td>Turn off for models that reject <code>temperature</code></td></tr>
+  <tr><td><code>KVB_CLOUD_STREAM_USAGE</code></td><td><code>true</code></td><td>Request <code>stream_options.include_usage</code> to receive <code>cached_tokens</code></td></tr>
+  <tr><td><code>KVB_CLOUD_VERIFY_TLS</code></td><td><code>true</code></td><td>Verify TLS certificates</td></tr>
+  <tr><td><code>KVB_CLOUD_KV_BYTES_PER_TOKEN</code></td><td><code>0</code></td><td>Estimate for memory accounting (0 = unknown)</td></tr>
+  <tr><td><code>KVB_CLOUD_TOKEN_BUDGET</code></td><td><code>0</code></td><td>Soft cap on prompt tokens sent per connection (0 = unlimited)</td></tr>
+</table>
+
+<h4>Shared, cache and GUI</h4>
+<table>
+  <tr><th>Variable</th><th>Default</th><th>Meaning</th></tr>
+  <tr><td><code>KVB_CTX_SIZE</code></td><td><code>8192</code></td><td>Context size (must be &ge; chunk size)</td></tr>
   <tr><td><code>KVB_REQUEST_TIMEOUT</code></td><td><code>300</code></td><td>HTTP timeout (s)</td></tr>
+  <tr><td><code>KVB_SEED</code></td><td><code>1</code></td><td>Sampling seed sent to every engine</td></tr>
   <tr><td><code>KVB_CHUNK_SIZE</code></td><td><code>256</code></td><td>Tokens per chunk</td></tr>
   <tr><td><code>KVB_L1_MB</code> / <code>KVB_L2_MB</code></td><td><code>2048</code> / <code>8192</code></td><td>Tier capacities</td></tr>
   <tr><td><code>KVB_WRITE_THROUGH</code></td><td><code>true</code></td><td>Write to L2 immediately (survives restarts)</td></tr>
@@ -320,8 +376,80 @@ h_i = blake3( h_{i-1} || pack_be_uint32(chunk_i) )
   <tr><td><code>KVB_N_PREDICT</code> / <code>KVB_TEMPERATURE</code></td><td><code>48</code> / <code>0.2</code></td><td>Generation defaults</td></tr>
   <tr><td><code>KVB_GUI_HOST</code> / <code>KVB_GUI_PORT</code></td><td><code>127.0.0.1</code> / <code>7871</code></td><td>GUI bind</td></tr>
 </table>
-<p><code>Settings.validate()</code> rejects: <code>chunk_size &lt; 1</code>, <code>ctx_size &lt; chunk_size</code>, negative tier sizes, both tiers at 0, invalid ports and reserved managed ports.
-<code>main()</code> turns any problem into a <code>SystemExit</code> before anything starts.</p>
+
+<p><code>Settings.validate()</code> checks the shared values (<code>chunk_size</code>, <code>ctx_size &ge; chunk_size</code>, tier sizes, <code>request_timeout</code>) and then calls the
+selected engine's <code>check_settings()</code>: llama.cpp (port validity, reserved ports, start timeout), Ollama (URL, model), cloud (URL or preset, model, API style, max-tokens field,
+budget, extra-headers JSON, and <em>no API key over plain http to a non-loopback host</em>). <code>main()</code> turns any problem into a <code>SystemExit</code> before anything starts.
+In the GUI, <code>Settings.apply()</code> coerces the form values, validates a <em>candidate copy</em> and commits only if it is valid, so a bad edit never leaves the app half-configured.</p>
+
+<h4>Secrets</h4>
+<ul>
+  <li>The GUI key box is a password field that is <strong>never pre-filled</strong>; leaving it blank keeps the current key.</li>
+  <li>The key can live outside any file: set <code>KVB_CLOUD_API_KEY_ENV</code> to the name of an exported variable.</li>
+  <li><em>Show effective configuration</em> prints <code>Settings.to_display()</code> with secrets masked. Keys are redacted from backend error text and are never written to logs or <code>output/</code> exports.</li>
+  <li><em>Save settings to .env</em> uses <code>update_env_file()</code>: comments and order are preserved, missing keys are appended, values are quoted, the write is atomic with file mode <code>0600</code>, newlines are rejected. The key is written only when <em>Also write the API key</em> is ticked (off by default). <code>.env</code> is git-ignored.</li>
+</ul>
+
+<h3 id="arch-registry">2.7 Engine registry</h3>
+<p>Engines are plug-ins. <code>backends.py</code> keeps a registry of <code>EngineSpec(name, label, cls, aliases)</code> entries; the GUI radio, the config validation and the factory are all generated from it,
+so there is no <code>if engine == "..."</code> chain anywhere.</p>
+<table>
+  <tr><th>Symbol</th><th>Role</th></tr>
+  <tr><td><code>register_engine(spec)</code></td><td>Add an engine (the three built-ins register themselves at import time)</td></tr>
+  <tr><td><code>resolve_engine(name)</code></td><td>Normalise a name or alias (<code>"Llama.cpp"</code> = <code>llamacpp</code>) or raise <code>BackendError</code> listing valid choices</td></tr>
+  <tr><td><code>engine_choices()</code> / <code>engine_specs()</code></td><td>Feed the GUI radio and the docs</td></tr>
+  <tr><td><code>make_backend(kind, settings)</code></td><td>Instantiate the selected backend</td></tr>
+  <tr><td><code>Backend.kind</code></td><td><code>"local"</code> or <code>"cloud"</code>; shown in the status line (&ldquo;prompts leave this machine&rdquo;)</td></tr>
+  <tr><td><code>Backend.supports_kv_export</code></td><td>Routes <code>CachedEngine.infer()</code> to the full path or the shadow path</td></tr>
+  <tr><td><code>Backend.check_settings(settings)</code></td><td>Classmethod returning engine-specific problems, with no I/O</td></tr>
+</table>
+<div class="note"><b>Adding an engine</b> Subclass <code>Backend</code>, set <code>name</code>, <code>kind</code>, <code>supports_kv_export</code>, implement <code>check_settings / start / stop / is_ready / tokenize / generate</code>, then call <code>register_engine(EngineSpec(...))</code>. The new engine appears in the GUI radio automatically.</div>
+
+<h3 id="arch-examples">2.8 Configuration examples &amp; usage scenarios</h3>
+<p>Pick one block for <code>.env</code> (or enter the same values in the GUI and press <em>Connect</em>).</p>
+<div class="file">.env &mdash; local, full integration (llama.cpp)</div>
+<pre><code>KVB_ENGINE=llamacpp
+KVB_OLLAMA_MODEL=llama3.2:latest      <span class="c"># used to locate the GGUF blob</span>
+KVB_CTX_SIZE=8192
+KVB_LLAMA_START_TIMEOUT=300           <span class="c"># slow disk? allow more time</span></code></pre>
+<div class="file">.env &mdash; local, shadow mode (Ollama)</div>
+<pre><code>KVB_ENGINE=ollama
+KVB_OLLAMA_URL=http://127.0.0.1:11434
+KVB_OLLAMA_MODEL=llama3.2:latest
+KVB_OLLAMA_KEEP_ALIVE=30m</code></pre>
+<div class="file">.env &mdash; hosted provider (key stays in your shell)</div>
+<pre><code>KVB_ENGINE=cloud
+KVB_CLOUD_PROVIDER=openai
+KVB_CLOUD_MODEL=gpt-4o-mini
+KVB_CLOUD_API_KEY_ENV=OPENAI_API_KEY  <span class="c"># export OPENAI_API_KEY=... before start.sh</span>
+KVB_CLOUD_TOKEN_BUDGET=200000         <span class="c"># spend guard</span></code></pre>
+<div class="file">.env &mdash; self-hosted vLLM / any OpenAI-compatible server</div>
+<pre><code>KVB_ENGINE=cloud
+KVB_CLOUD_BASE_URL=https://llm.example.internal/v1
+KVB_CLOUD_MODEL=meta-llama/Llama-3.1-8B-Instruct
+KVB_CLOUD_API_KEY_ENV=INTERNAL_LLM_KEY
+KVB_CLOUD_EXTRA_HEADERS={"X-Team": "search"}</code></pre>
+<div class="file">.env &mdash; free smoke test of the cloud path (no account)</div>
+<pre><code>KVB_ENGINE=cloud
+KVB_CLOUD_PROVIDER=ollama-local-openai   <span class="c"># http://127.0.0.1:11434/v1</span>
+KVB_CLOUD_MODEL=llama3.2:latest</code></pre>
+<table>
+  <tr><th>Scenario</th><th>Engine</th><th>What to do</th><th>What you see</th></tr>
+  <tr><td>A. Maximum benefit, fully offline</td><td>llama.cpp</td><td><code>KVB_ENGINE=llamacpp</code>, Connect, run <em>Document Q&amp;A</em></td><td>First question prefills (seconds); later ones restore KV in tens of ms; <em>Engine restart</em> shows an L2 restore</td></tr>
+  <tr><td>B. Observe an existing Ollama setup</td><td>Ollama</td><td><code>KVB_ENGINE=ollama</code>, Connect, run <em>Shared system prompt</em></td><td>Predicted reuse next to <code>prompt_eval_cached_count</code>; SHADOW label</td></tr>
+  <tr><td>C. Measure a hosted provider's prefix cache</td><td>Cloud</td><td>Preset + model + key + token budget, Connect, run <em>Shared system prompt</em> with a long input document</td><td><code>cached_tokens</code> reported by the provider per request; <code>cold</code> adds a nonce and shows no reuse</td></tr>
+  <tr><td>D. Try the cloud path for free</td><td>Cloud</td><td>Preset <code>ollama-local-openai</code>, model <code>llama3.2:latest</code></td><td>Same GUI and metrics, no key, no cost</td></tr>
+  <tr><td>E. Switch engines without editing files</td><td>any</td><td>Change the engine radio, edit fields, Connect, optionally <em>Save settings to .env</em></td><td>Status line states engine, location and FULL/SHADOW mode</td></tr>
+</table>
+<p>Programmatic equivalent:</p>
+<pre><code><span class="k">from</span> kvbridge.config <span class="k">import</span> Settings
+<span class="k">from</span> kvbridge.backends <span class="k">import</span> make_backend
+<span class="k">from</span> kvbridge.engine <span class="k">import</span> CachedEngine
+
+s = Settings.from_env()                  <span class="c"># honours KVB_ENGINE and .env</span>
+<span class="k">assert not</span> (problems := s.validate()), problems
+engine = CachedEngine(s, make_backend(s.engine, s))
+engine.start()</code></pre>
 </section>
 
 <!-- ======================= 3. LIFECYCLE ======================= -->
@@ -404,12 +532,12 @@ Lifecycle code exists to guarantee that the child never outlives the GUI.</p>
 <section id="gui">
 <h2>4. GUI implementation</h2>
 <p>The GUI is a single <code>gr.Blocks</code> app (Gradio 6.31, <code>fill_width=True</code>, <code>Soft</code> blue theme) built by <code>build_app(state)</code>.
-Analytics are disabled with <code>GRADIO_ANALYTICS_ENABLED=False</code> at the top of <code>app.py</code>, so no network traffic leaves the machine. All plotting logic lives in <code>charts.py</code>, which does not import Gradio, so it is unit-testable.</p>
+Analytics are disabled with <code>GRADIO_ANALYTICS_ENABLED=False</code> at the top of <code>app.py</code>, so Gradio itself sends no telemetry (only the cloud engine, if selected, contacts a remote host &mdash; the URL you configured). All plotting logic lives in <code>charts.py</code>, which does not import Gradio, so it is unit-testable.</p>
 
 <h3 id="gui-tabs">4.1 Tabs</h3>
 <table>
   <tr><th>#</th><th>Tab</th><th>Controls</th><th>Shows</th></tr>
-  <tr><td>1</td><td><b>Engine &amp; Cache</b></td><td>Engine radio (<code>llamacpp</code> | <code>ollama</code>), model, context, chunk size, L1/L2 sliders, write-through, real-hasher checkbox, <i>Connect / (re)start</i>, <i>Disconnect</i></td><td>Status box (engine, model, ctx, FULL vs SHADOW mode, hasher, KV bytes/token)</td></tr>
+  <tr><td>1</td><td><b>Engine &amp; Cache</b></td><td>Engine radio built from the registry (llama.cpp | Ollama | Cloud); a settings group per engine that is shown or hidden on selection &mdash; llama.cpp (binary, search paths, URL, model path, port, start timeout, GPU layers, extra args), Ollama (URL, model, keep-alive, models dir), Cloud (provider preset, base URL, model, API key, key env-var name, extra headers JSON, API style, max-tokens field, token budget, KV bytes/token, send-temperature / stream-usage / verify-TLS); shared context, chunk size, L1/L2, write-through, real-hasher; <i>Connect</i>, <i>Disconnect</i>, <i>Show effective configuration</i> (secrets masked), <i>Save settings to .env</i> with <i>Also write the API key</i> (off by default)</td><td>Status box (engine, local/remote location, model, ctx, FULL vs SHADOW mode, hasher, KV bytes/token, token budget) and the masked effective-configuration JSON</td></tr>
   <tr><td>2</td><td><b>Dashboard</b></td><td><i>Refresh now</i>, <i>Reset metrics</i>, <i>Export metrics JSON</i></td><td>KPI table, TTFT, tokens computed vs reused, hit rate, mode comparison, tier occupancy, last 25 requests</td></tr>
   <tr><td>3</td><td><b>Playground</b></td><td>Prompt, shared-context size (0&ndash;8000), mode radio, max tokens, temperature, <i>Run</i></td><td>Answer, per-request info, chunk map</td></tr>
   <tr><td>4</td><td><b>Scenarios</b></td><td>Scenario radio, context size, questions/turns/users, <i>Run scenario</i></td><td>Summary, TTFT and token charts, chunk map, request table</td></tr>
@@ -444,12 +572,16 @@ Analytics are disabled with <code>GRADIO_ANALYTICS_ENABLED=False</code> at the t
         <span class="k">return</span> self.engine</code></pre>
 <ul>
   <li>Handlers that need an engine call <code>state.require()</code>; users see a Gradio error toast instead of a traceback.</li>
-  <li><code>connect(...)</code> runs under <code>state.lock</code>: stop previous engine &rarr; apply slider values to <code>Settings</code> &rarr; <code>validate()</code> &rarr; <code>CachedEngine(s, make_backend(kind, s)).start()</code>. <code>BackendError</code> becomes readable status text; unexpected exceptions are logged and shown.</li>
+  <li><code>connect(...)</code> runs under <code>state.lock</code>: stop previous engine &rarr; <code>form_to_values</code> &rarr; <code>Settings.apply()</code> (coerce, validate a candidate copy, commit atomically; problems are listed per field and nothing changes) &rarr; <code>CachedEngine(s, make_backend(s.engine, s)).start()</code>. A blank API-key box keeps the current key. <code>BackendError</code> becomes readable status text (with keys redacted); unexpected exceptions are logged and shown.</li>
   <li>Gradio queue concurrency is 4, while <code>CachedEngine.infer()</code> serialises engine access with its own <code>RLock</code> (one llama.cpp slot).</li>
 </ul>
-<p>A successful connect to llama.cpp produces a status such as:</p>
+<p>Successful connects produce a status such as (llama.cpp, then a cloud endpoint):</p>
 <pre><code>Connected to llama.cpp - model llama3.2:latest - ctx 8192
 FULL integration: real KV tensors are saved / restored through llama.cpp slots.
+Hasher: kvbridge (LMCache-compatible blake3)
+
+Connected to cloud (remote service - prompts leave this machine) - model llama3.2:latest@127.0.0.1:11434 - ctx 8192
+SHADOW mode: the engine hides its KV cache, so LMCache-style chunk indexing and accounting run next to the engine's own prefix cache.
 Hasher: kvbridge (LMCache-compatible blake3)</code></pre>
 
 <h3 id="gui-about">4.3 About tab: rendering the research document</h3>
@@ -475,42 +607,43 @@ The text is read once at <code>build_app()</code> time, so edit the file and res
 <section id="tests">
 <h2>5. Test suite</h2>
 <div class="grid">
-  <div class="card"><div class="kpi">125<small>unit tests passed (4 skipped) &mdash; <code>scripts/test.sh</code></small></div></div>
-  <div class="card"><div class="kpi">128<small>passed with live engines (1 skipped) &mdash; <code>scripts/test.sh --live</code></small></div></div>
-  <div class="card"><div class="kpi">129<small>tests collected in 7 files</small></div></div>
+  <div class="card"><div class="kpi">183<small>unit tests passed (5 skipped) &mdash; <code>scripts/test.sh</code></small></div></div>
+  <div class="card"><div class="kpi">187<small>passed with live engines (1 skipped) &mdash; <code>scripts/test.sh --live</code></small></div></div>
+  <div class="card"><div class="kpi">188<small>tests collected in 7 files</small></div></div>
 </div>
-<p>Arithmetic: 125 passed + 4 skipped = 129 collected. With <code>KVB_LIVE=1</code> the three live tests move from skipped to passed: 125 + 3 = <strong>128 passed</strong>, 1 skipped.</p>
+<p>Arithmetic: 183 passed + 5 skipped = 188 collected. With <code>KVB_LIVE=1</code> the four live tests move from skipped to passed: 183 + 4 = <strong>187 passed</strong>, 1 skipped (the optional LMCache hasher test). The cloud engine is tested against an in-process fake (<code>FakeCloud</code>), so no network or key is needed.</p>
 
-<h3 id="tests-unit">5.1 Unit tests (125 passed)</h3>
+<h3 id="tests-unit">5.1 Unit tests (183 passed)</h3>
 <table>
   <tr><th>File</th><th class="num">Collected</th><th>Covers</th></tr>
-  <tr><td><code>test_backends.py</code></td><td class="num">29</td><td>llama.cpp and Ollama adapters against in-process fakes (<code>FakeLlama</code>, <code>FakeOllama</code>); command construction, GGUF resolution, error mapping, streaming parse</td></tr>
-  <tr><td><code>test_config.py</code></td><td class="num">7</td><td>Env/.env parsing, defaults, <code>validate()</code> rejections (chunk, ctx, tiers, ports, reserved ports)</td></tr>
-  <tr><td><code>test_engine.py</code></td><td class="num">22</td><td>Mode routing, L1/L2 hits, restore-failure fallback, shadow accounting, restart simulation, namespaces</td></tr>
+  <tr><td><code>test_backends.py</code></td><td class="num">63</td><td>llama.cpp, Ollama and <b>cloud</b> adapters against in-process fakes; command construction, GGUF resolution, configurable search paths/timeouts, <b>engine registry</b> (aliases, normalisation, unknown names), <b>CloudBackend</b> (chat/completions styles, <code>cached_tokens</code>, retries with <code>Retry-After</code>, key redaction, http+key refusal, token budget, cold nonce), error mapping, streaming parse</td></tr>
+  <tr><td><code>test_config.py</code></td><td class="num">22</td><td>Env/.env parsing and precedence, defaults, <code>validate()</code> per engine, <code>apply()</code> atomicity and type coercion, secret masking, <code>env_values</code>, <code>update_env_file</code> (comments, order, quoting, 0600, newline rejection), and a test that <code>.env.example</code> lists every <code>Settings</code> field</td></tr>
+  <tr><td><code>test_engine.py</code></td><td class="num">23</td><td>Mode routing, L1/L2 hits, restore-failure fallback, shadow accounting (Ollama and cloud), restart simulation, namespaces</td></tr>
   <tr><td><code>test_hashing.py</code></td><td class="num">11 (1 skipped)</td><td>Rolling-hash determinism, prefix property, namespace isolation, partial-tail discard, adapter fallback</td></tr>
-  <tr><td><code>test_live.py</code></td><td class="num">3 (skipped unless <code>KVB_LIVE=1</code>)</td><td>Real engines (see below)</td></tr>
-  <tr><td><code>test_scenarios_charts_app.py</code></td><td class="num">21</td><td>Scenarios, chart builders, <code>AppState.require</code>, chunk-map height, <b>SIGTERM cleanup</b></td></tr>
+  <tr><td><code>test_live.py</code></td><td class="num">4 (skipped unless <code>KVB_LIVE=1</code>)</td><td>Real engines (see below)</td></tr>
+  <tr><td><code>test_scenarios_charts_app.py</code></td><td class="num">29</td><td>Scenarios, chart builders, <code>AppState.require</code>, chunk-map height, <b>SIGTERM cleanup</b>, GUI helpers (<code>form_to_values</code>, <code>engine_visibility</code>, <code>describe_connection</code>), connect with a fake cloud backend, atomic rejection of invalid input, save-to-<code>.env</code> never writes the key unless asked, masked effective configuration</td></tr>
   <tr><td><code>test_store_metrics.py</code></td><td class="num">36</td><td>Tiered store (put/lookup/fetch/evict/resize/clear/index persistence), metrics and export</td></tr>
-  <tr><th>Total</th><th class="num">129</th><th>= 125 passed + 4 skipped</th></tr>
+  <tr><th>Total</th><th class="num">188</th><th>= 183 passed + 5 skipped</th></tr>
 </table>
-<p>The four skips in the default run are: the three live tests, and <code>test_hashing.py</code>'s equivalence test against the real LMCache hasher
+<p>The five skips in the default run are: the four live tests, and <code>test_hashing.py</code>'s equivalence test against the real LMCache hasher
 (<code>pytest.importorskip("lmcache.v1.multiprocess.token_hasher")</code>), which only runs where the optional package is installed.</p>
 
-<h3 id="tests-live">5.2 Live tests (128 passed)</h3>
-<p>Enabled with <code>KVB_LIVE=1</code> (what <code>scripts/test.sh --live</code> sets). They need a local Ollama with the configured model and a <code>llama-server</code> binary.</p>
+<h3 id="tests-live">5.2 Live tests (187 passed)</h3>
+<p>Enabled with <code>KVB_LIVE=1</code> (what <code>scripts/test.sh --live</code> sets). They need a local Ollama with the configured model and a <code>llama-server</code> binary; the cloud test uses Ollama's OpenAI-compatible endpoint (or whatever <code>KVB_CLOUD_*</code> points at).</p>
 <table>
   <tr><th>Test</th><th>Assertion</th></tr>
   <tr><td><code>test_llamacpp_lmcache_beats_cold</code></td><td>Runs <code>doc_qa</code> (700-token context, 3 questions). Cold requests compute &gt;500 tokens; the first lmcache request is a miss; later lmcache requests have <code>chunks_hit &gt; 0</code> and compute &lt;100 tokens; their average TTFT is lower than cold</td></tr>
   <tr><td><code>test_llamacpp_restart_restores_from_disk</code></td><td>Runs <code>restart</code>. The request after the real <code>llama-server</code> restart is served from tier <code>L2</code> with <code>chunks_hit &gt; 0</code> and computes fewer tokens than the cold request</td></tr>
   <tr><td><code>test_ollama_shadow_mode</code></td><td>Runs <code>shared_prefix</code> (3 users) on Ollama: no errors, lmcache records are flagged <code>shadow</code>, and the second one has <code>chunks_hit &gt; 0</code> and <code>server_cached_tokens &gt; 0</code> (Ollama's own cache confirms the reuse)</td></tr>
+  <tr><td><code>test_cloud_engine_shadow_mode</code></td><td>Runs <code>shared_prefix</code> (3 users) through <code>CloudBackend</code> with the <code>ollama-local-openai</code> preset: no errors, lmcache records are flagged <code>shadow</code>, the second has <code>chunks_hit &gt; 0</code>, and <code>describe()["location"] == "cloud"</code></td></tr>
 </table>
 
 <h3 id="tests-run">5.3 Running</h3>
 <pre><code><span class="c"># unit tests (no engine needed)</span>
-scripts/test.sh                  <span class="c"># -&gt; 125 passed, 4 skipped</span>
+scripts/test.sh                  <span class="c"># -&gt; 183 passed, 5 skipped</span>
 
 <span class="c"># plus live engine tests</span>
-scripts/test.sh --live           <span class="c"># -&gt; 128 passed, 1 skipped</span>
+scripts/test.sh --live           <span class="c"># -&gt; 187 passed, 1 skipped</span>
 
 <span class="c"># a single file / test</span>
 .venv/bin/python -m pytest tests/test_store_metrics.py -q
@@ -519,8 +652,8 @@ scripts/test.sh --live           <span class="c"># -&gt; 128 passed, 1 skipped</
 
 <!-- ======================= 6. SERVER INTEGRATION ======================= -->
 <section id="servers">
-<h2>6. Server integration: Ollama &amp; llama.cpp</h2>
-<p>Both engines implement the abstract <code>Backend</code> interface (<code>start, stop, is_ready, tokenize, generate, reset_native_cache, save_state, restore_state, describe</code>) and are created by <code>make_backend(kind, settings)</code>, which accepts <code>llamacpp</code>/<code>llama</code>/<code>llama.cpp</code>/<code>llama-cpp</code> and <code>ollama</code> and raises <code>BackendError</code> otherwise.
+<h2>6. Engine integration: llama.cpp, Ollama &amp; cloud</h2>
+<p>All engines implement the abstract <code>Backend</code> interface (<code>start, stop, is_ready, tokenize, generate, reset_native_cache, save_state, restore_state, describe</code> plus the class attributes <code>kind</code> and <code>supports_kv_export</code> and the classmethod <code>check_settings</code>) and are created by <code>make_backend(kind, settings)</code>, which resolves the name through the engine registry (<code>llamacpp</code>/<code>llama</code>, <code>ollama</code>, <code>cloud</code>/<code>openai</code>/<code>api</code>) and raises <code>BackendError</code> listing the valid choices otherwise.
 <code>GenResult</code> normalises timings across engines.</p>
 
 <h3 id="srv-llama">6.1 llama.cpp &mdash; full integration</h3>
@@ -530,7 +663,7 @@ scripts/test.sh --live           <span class="c"># -&gt; 128 passed, 1 skipped</
   <tr><td>Health</td><td><code>GET /health</code></td><td>Ready when HTTP 200 and <code>status == "ok"</code></td></tr>
   <tr><td>Context size</td><td><code>GET /slots</code></td><td><code>_probe()</code> reads <code>n_ctx</code> of slot 0</td></tr>
   <tr><td>Tokenise</td><td><code>POST /tokenize</code></td><td><code>{"content": text, "add_special": true}</code> &mdash; exact model token ids for hashing</td></tr>
-  <tr><td>Generate</td><td><code>POST /completion</code></td><td>Streaming, <code>id_slot: 0</code>, <code>cache_prompt</code>, <code>seed: 1</code>; TTFT = first SSE event; <code>timings.cache_n</code> / <code>prompt_n</code> give reused vs computed tokens</td></tr>
+  <tr><td>Generate</td><td><code>POST /completion</code></td><td>Streaming, <code>id_slot: 0</code>, <code>cache_prompt</code>, <code>seed: KVB_SEED</code>; TTFT = first SSE event; <code>timings.cache_n</code> / <code>prompt_n</code> give reused vs computed tokens</td></tr>
   <tr><td>Erase native cache</td><td><code>POST /slots/0?action=erase</code></td><td>Used by <code>cold</code> and before every <code>lmcache</code> lookup</td></tr>
   <tr><td>Save KV</td><td><code>POST /slots/0?action=save</code></td><td>Server writes <code>stage_&lt;pid&gt;_&lt;seq&gt;.bin</code> to <code>--slot-save-path</code>; KVBridge reads the bytes then unlinks the file</td></tr>
   <tr><td>Restore KV</td><td><code>POST /slots/0?action=restore</code></td><td>KVBridge writes the blob into the slot directory, calls restore, then unlinks</td></tr>
@@ -549,7 +682,7 @@ scripts/test.sh --live           <span class="c"># -&gt; 128 passed, 1 skipped</
   <li><code>--cache-ram 0</code> disables llama.cpp's own host-RAM prompt cache so the <code>native</code> vs <code>lmcache</code> comparison stays honest (<code>KVB_CACHE_RAM_MB</code>).</li>
   <li><code>--no-webui</code> and loopback binding keep the server private.</li>
   <li>The model is the <strong>same GGUF blob Ollama already downloaded</strong>: <code>resolve_ollama_gguf()</code> reads <code>manifests/registry.ollama.ai/library/&lt;name&gt;/&lt;tag&gt;</code>, finds the layer with media type <code>application/vnd.ollama.image.model</code>, and maps its digest to <code>blobs/sha256-...</code>. Override with <code>KVB_MODEL_PATH</code>.</li>
-  <li>Binary discovery order (<code>find_llama_server</code>): <code>KVB_LLAMA_SERVER_BIN</code> &rarr; <code>PATH</code> &rarr; <code>/opt/homebrew/bin</code> &rarr; <code>/usr/local/bin</code> &rarr; <code>Ollama.app/Contents/Resources</code>.</li>
+  <li>Binary discovery order (<code>find_llama_server</code>): <code>KVB_LLAMA_SERVER_BIN</code> &rarr; <code>PATH</code> &rarr; <code>KVB_LLAMA_SEARCH_PATHS</code> (default: <code>/opt/homebrew/bin</code>, <code>/usr/local/bin</code>, <code>Ollama.app/Contents/Resources</code>).</li>
   <li>Setting <code>KVB_LLAMA_URL</code> attaches to an <em>external</em> server instead; KVBridge then never spawns, stops or restarts it.</li>
 </ul>
 <div class="warn"><b>Slot directory contract</b> <code>KVB_SLOT_DIR</code> must be the server's <code>--slot-save-path</code>. For an external server, point it at the same directory, or save/restore will fail with a clear <code>BackendError</code> ("is KVB_SLOT_DIR the server's --slot-save-path?").</div>
@@ -560,7 +693,7 @@ scripts/test.sh --live           <span class="c"># -&gt; 128 passed, 1 skipped</
   <tr><th>Operation</th><th>Endpoint</th><th>Notes</th></tr>
   <tr><td>Readiness</td><td><code>GET /api/version</code></td><td>Failure &rarr; <code>BackendError("Ollama not reachable ... ollama serve")</code></td></tr>
   <tr><td>Model info</td><td><code>POST /api/show</code></td><td>404 &rarr; &ldquo;run ollama pull&rdquo;. Computes <code>kv_bytes_per_token = 2 &middot; blocks &middot; kv_heads &middot; (emb/heads) &middot; 2</code> (K+V, fp16)</td></tr>
-  <tr><td>Generate</td><td><code>POST /api/generate</code></td><td><code>raw: true</code>, streaming, <code>keep_alive: "10m"</code>, <code>num_ctx</code>, <code>seed: 1</code>; reads <code>prompt_eval_count</code> and <code>prompt_eval_cached_count</code></td></tr>
+  <tr><td>Generate</td><td><code>POST /api/generate</code></td><td><code>raw: true</code>, streaming, <code>keep_alive: KVB_OLLAMA_KEEP_ALIVE</code> (default <code>10m</code>), <code>num_ctx</code>, <code>seed: KVB_SEED</code>; reads <code>prompt_eval_count</code> and <code>prompt_eval_cached_count</code></td></tr>
   <tr><td>Reset cache</td><td><code>POST /api/generate</code> <code>keep_alive: 0</code>, <code>GET /api/ps</code></td><td>Unloads the model, waits (&le; 10 s) until <code>/api/ps</code> no longer lists it, then loads it empty</td></tr>
   <tr><td>Tokenise</td><td>local <code>pseudo_tokenize()</code></td><td>CRC32 of each word / punctuation / whitespace run &mdash; stable, <em>not</em> the model vocabulary</td></tr>
 </table>
@@ -574,16 +707,39 @@ scripts/test.sh --live           <span class="c"># -&gt; 128 passed, 1 skipped</
 </ol>
 <div class="note"><b>Honest reading</b> In shadow mode the savings come from <em>Ollama's</em> prefix cache; KVBridge predicts and measures them. Records carry <code>shadow=true</code> and the GUI labels the mode &ldquo;SHADOW&rdquo;.</div>
 
-<h3 id="srv-compare">6.3 Comparison</h3>
+<h3 id="srv-cloud">6.3 Cloud &mdash; OpenAI-compatible, shadow mode</h3>
+<p><code>CloudBackend</code> talks to any service that implements the OpenAI REST dialect: OpenAI, Groq, OpenRouter, Together, Mistral, DeepSeek, or a self-hosted vLLM / LM Studio / Ollama <code>/v1</code> endpoint.
+Hosted APIs never expose KV tensors, so (like Ollama) it runs in <strong>shadow mode</strong> and uses the provider's own cache report as ground truth.</p>
 <table>
-  <tr><th>Capability</th><th>llama.cpp</th><th>Ollama</th></tr>
-  <tr><td>Export / import KV tensors</td><td><span class="pill ok">yes</span> slot save/restore</td><td><span class="pill no">no</span></td></tr>
-  <tr><td>Real tokenizer</td><td><span class="pill ok">yes</span> <code>/tokenize</code></td><td><span class="pill no">no</span> pseudo-tokens</td></tr>
-  <tr><td>Persistent L2 hits restored into the engine</td><td><span class="pill ok">yes</span></td><td><span class="pill no">accounting only</span></td></tr>
-  <tr><td>Survives engine restart</td><td><span class="pill ok">yes</span> (disk tier)</td><td><span class="pill no">no</span></td></tr>
-  <tr><td>Lifecycle owned by KVBridge</td><td><span class="pill ok">spawn / stop / restart</span></td><td><span class="pill part">external daemon</span> (<code>stop()</code> is a no-op)</td></tr>
-  <tr><td>Reuse ground truth</td><td><code>timings.cache_n</code></td><td><code>prompt_eval_cached_count</code></td></tr>
-  <tr><td>Integration level</td><td><b>FULL</b></td><td><b>SHADOW</b></td></tr>
+  <tr><th>Aspect</th><th>Behaviour</th><th>Setting</th></tr>
+  <tr><td>Endpoint</td><td><code>POST {base}/chat/completions</code> (or <code>/completions</code>), streaming; TTFT = first content event</td><td><code>KVB_CLOUD_BASE_URL</code> / <code>KVB_CLOUD_PROVIDER</code>, <code>KVB_CLOUD_API_STYLE</code></td></tr>
+  <tr><td>Authentication</td><td><code>Authorization: Bearer &lt;key&gt;</code> plus optional extra headers</td><td><code>KVB_CLOUD_API_KEY</code> or <code>KVB_CLOUD_API_KEY_ENV</code>, <code>KVB_CLOUD_EXTRA_HEADERS</code></td></tr>
+  <tr><td>Request shape</td><td>Output-limit field name and <code>temperature</code> are optional so strict models do not reject the call</td><td><code>KVB_CLOUD_MAX_TOKENS_FIELD</code>, <code>KVB_CLOUD_SEND_TEMPERATURE</code></td></tr>
+  <tr><td>Reuse ground truth</td><td><code>usage.prompt_tokens_details.cached_tokens</code> (also <code>prompt_cache_hit_tokens</code>) becomes <code>server_cached_tokens</code></td><td><code>KVB_CLOUD_STREAM_USAGE</code></td></tr>
+  <tr><td>Cold baseline</td><td>A one-shot random nonce is prepended so the provider cannot reuse its prefix cache</td><td>&mdash;</td></tr>
+  <tr><td>Resilience</td><td>429/502/503/504 are retried (3 attempts) honouring <code>Retry-After</code>; other HTTP errors become a readable <code>BackendError</code></td><td><code>KVB_REQUEST_TIMEOUT</code></td></tr>
+  <tr><td>Cost guard</td><td>Prompt tokens are counted per connection; exceeding the soft cap raises an error before the request is sent</td><td><code>KVB_CLOUD_TOKEN_BUDGET</code></td></tr>
+  <tr><td>Security</td><td>Keys redacted from every error; <code>http://</code> + key refused for non-loopback hosts; TLS verified by default</td><td><code>KVB_CLOUD_VERIFY_TLS</code></td></tr>
+  <tr><td>Tokenisation</td><td>Local <code>pseudo_tokenize()</code> (as for Ollama); real counts come from the provider's <code>usage</code></td><td>&mdash;</td></tr>
+</table>
+<div class="warn"><b>Privacy, cost and cache semantics</b>
+Unlike the other engines, <strong>prompts leave your machine</strong> and are billed by the provider. Provider caches are automatic, short-lived and only apply above a minimum prompt length (about 1,024 tokens on OpenAI),
+so a short prompt will legitimately report 0 cached tokens. KVBridge cannot make the provider cache more; it shows how well your prompts exploit it. The status line states &ldquo;remote service &mdash; prompts leave this machine&rdquo; after connecting.</div>
+<div class="note"><b>Free way to try it</b> Preset <code>ollama-local-openai</code> points at Ollama's OpenAI-compatible endpoint (<code>http://127.0.0.1:11434/v1</code>), so the whole cloud code path (headers, streaming, usage parsing, token budget) can be exercised without an account. The opt-in live test <code>test_cloud_engine_shadow_mode</code> does exactly that.</div>
+
+<h3 id="srv-compare">6.4 Comparison</h3>
+<table>
+  <tr><th>Capability</th><th>llama.cpp</th><th>Ollama</th><th>Cloud</th></tr>
+  <tr><td>Where prompts go</td><td>this machine</td><td>this machine</td><td><span class="pill part">remote service</span></td></tr>
+  <tr><td>Export / import KV tensors</td><td><span class="pill ok">yes</span> slot save/restore</td><td><span class="pill no">no</span></td><td><span class="pill no">no</span></td></tr>
+  <tr><td>Real tokenizer</td><td><span class="pill ok">yes</span> <code>/tokenize</code></td><td><span class="pill no">no</span> pseudo-tokens</td><td><span class="pill no">no</span> pseudo-tokens</td></tr>
+  <tr><td>Persistent L2 hits restored into the engine</td><td><span class="pill ok">yes</span></td><td><span class="pill no">accounting only</span></td><td><span class="pill no">accounting only</span></td></tr>
+  <tr><td>Survives engine restart</td><td><span class="pill ok">yes</span> (disk tier)</td><td><span class="pill no">no</span></td><td><span class="pill no">no</span> (provider TTL)</td></tr>
+  <tr><td>Lifecycle owned by KVBridge</td><td><span class="pill ok">spawn / stop / restart</span></td><td><span class="pill part">external daemon</span> (<code>stop()</code> is a no-op)</td><td><span class="pill part">remote service</span></td></tr>
+  <tr><td>Reuse ground truth</td><td><code>timings.cache_n</code></td><td><code>prompt_eval_cached_count</code></td><td><code>cached_tokens</code> / <code>prompt_cache_hit_tokens</code></td></tr>
+  <tr><td>Cost</td><td>none</td><td>none</td><td>billed per token (<code>KVB_CLOUD_TOKEN_BUDGET</code> guards it)</td></tr>
+  <tr><td>Needs an API key</td><td>no</td><td>no</td><td>usually (not for local OpenAI-compatible servers)</td></tr>
+  <tr><td>Integration level</td><td><b>FULL</b></td><td><b>SHADOW</b></td><td><b>SHADOW</b></td></tr>
 </table>
 </section>
 
@@ -614,13 +770,13 @@ scripts/test.sh --live           <span class="c"># -&gt; 128 passed, 1 skipped</
     <path d="M820 198H680"/><path d="M820 268H680"/>
   </g>
   <g fill="#1f2328">
-    <text x="168" y="56" text-anchor="middle">Connect (kind, model, sliders)</text>
-    <text x="370" y="82" text-anchor="middle">stop old &#183; validate &#183; make_backend</text>
+    <text x="168" y="56" text-anchor="middle">Connect (engine, form values)</text>
+    <text x="370" y="82" text-anchor="middle">stop old &#183; apply+validate &#183; make_backend</text>
     <text x="578" y="108" text-anchor="middle">start()</text>
     <text x="750" y="162" text-anchor="middle">GET /health</text>
     <text x="750" y="190" text-anchor="middle" fill="#59636e">ok? &rarr; attach</text>
     <text x="750" y="212" text-anchor="middle">else Popen(llama-server)</text>
-    <text x="750" y="242" text-anchor="middle">poll /health &#8804; 180 s</text>
+    <text x="750" y="242" text-anchor="middle">poll /health &#8804; start_timeout</text>
     <text x="750" y="262" text-anchor="middle" fill="#59636e">status ok</text>
     <text x="578" y="316" text-anchor="middle">ready (n_ctx via /slots)</text>
     <text x="370" y="342" text-anchor="middle">store index loaded</text>
@@ -628,9 +784,9 @@ scripts/test.sh --live           <span class="c"># -&gt; 128 passed, 1 skipped</
   </g>
   <rect x="90" y="400" width="700" height="50" rx="8" fill="#fff1f1" stroke="#a2191f"/>
   <text x="440" y="422" text-anchor="middle" font-weight="700" fill="#a2191f">Any BackendError at any step &rarr; readable status text; no engine is stored in AppState</text>
-  <text x="440" y="440" text-anchor="middle" fill="#59636e">e.g. binary not found &middot; port busy &middot; model missing &middot; server exited &middot; not ready within 180 s</text>
+  <text x="440" y="440" text-anchor="middle" fill="#59636e">e.g. binary not found &middot; port busy &middot; model missing &middot; server exited &middot; not ready within KVB_LLAMA_START_TIMEOUT</text>
 </svg>
-<figcaption>Figure 4 &mdash; Connect sequence for llama.cpp. For Ollama, <code>start()</code> only checks <code>/api/version</code> and <code>/api/show</code>.</figcaption>
+<figcaption>Figure 4 &mdash; Connect sequence for llama.cpp. For Ollama, <code>start()</code> only checks <code>/api/version</code> and <code>/api/show</code>; for the cloud engine it validates URL, model and key and probes the endpoint, spawning nothing.</figcaption>
 </figure>
 
 <p><code>CachedEngine.start()</code> additionally refreshes the hasher and the store directory, then loads the persisted index. The namespace <code>"{backend.name}|{model_id}"</code> seeds the hash and selects a <em>per-model sanitised store directory</em>, so different models/engines never see each other's snapshots (a snapshot is only valid for the same model file and context size).</p>
@@ -643,14 +799,14 @@ scripts/test.sh --live           <span class="c"># -&gt; 128 passed, 1 skipped</
   <li><b>Port conflict.</b> If the managed port answers but is not a healthy llama-server &rarr; <code>BackendError("port N is busy but not a healthy llama-server; change KVB_MANAGED_PORT")</code>.</li>
   <li><b>Spawn.</b> Build the command, create the log directory, open <code>output/logs/llama_server.log</code> (append), and <code>subprocess.Popen(..., stdout=log, stderr=STDOUT, start_new_session=True)</code>.</li>
   <li><b>Record the PID</b> in <code>output/llama_server.pid</code> (used by <code>stop.sh</code> as a safety net).</li>
-  <li><b>Wait for readiness</b> up to 180 s, every 0.5 s. If the process exits early &rarr; <code>BackendError("llama-server exited with code N; see ...llama_server.log")</code>. On timeout it calls <code>stop()</code> before raising.</li>
+  <li><b>Wait for readiness</b> up to <code>KVB_LLAMA_START_TIMEOUT</code> seconds (default 180), every 0.5 s. If the process exits early &rarr; <code>BackendError("llama-server exited with code N; see ...llama_server.log")</code>. On timeout it calls <code>stop()</code> before raising.</li>
   <li><b>Probe</b> <code>/slots</code> for the real <code>n_ctx</code>.</li>
 </ol>
 <div class="file">kvbridge/backends.py &mdash; LlamaCppBackend.start() (excerpt)</div>
 <pre><code>self.proc = subprocess.Popen(cmd, stdout=logf, stderr=subprocess.STDOUT,
                              start_new_session=<span class="n">True</span>)         <span class="c"># own session + process group</span>
 self.pidfile.write_text(str(self.proc.pid))
-deadline = time.time() + <span class="n">180</span>
+deadline = time.time() + self.s.llama_start_timeout   <span class="c"># KVB_LLAMA_START_TIMEOUT</span>
 <span class="k">while</span> time.time() &lt; deadline:
     <span class="k">if</span> self.proc.poll() <span class="k">is not None</span>:
         <span class="k">raise</span> BackendError(f<span class="s">"llama-server exited with code {self.proc.returncode}; "</span>
@@ -659,9 +815,16 @@ deadline = time.time() + <span class="n">180</span>
         self._probe(); <span class="k">return</span>
     time.sleep(<span class="n">0.5</span>)
 self.stop()
-<span class="k">raise</span> BackendError(<span class="s">"llama-server did not become ready within 180 s"</span>)</code></pre>
+<span class="k">raise</span> BackendError(f<span class="s">"llama-server did not become ready within {self.s.llama_start_timeout:g} s"</span>)</code></pre>
 <p><code>start_new_session=True</code> puts the child in its own process group (<code>pgid == pid</code>). That is what allows <code>stop()</code> to signal the whole group with <code>os.killpg</code> and prevents a terminal Ctrl-C aimed at the GUI from also hitting the server uncontrolled.</p>
-<div class="warn"><b>Ports</b> KVBridge refuses to use the managed ports 5000 (AirDrop on macOS), 8080, 9931 and 11434 (Ollama). Defaults are GUI <code>7871</code> and server <code>8089</code>.</div>
+<div class="warn"><b>Ports</b> By default KVBridge refuses to use the managed ports 5000 (AirDrop on macOS), 8080, 9931 and 11434 (Ollama); the list is the <code>KVB_RESERVED_PORTS</code> setting. Defaults are GUI <code>7871</code> and server <code>8089</code>.</div>
+
+<h3 id="conn-other">7.3 Connecting to Ollama and cloud engines</h3>
+<ol class="steps">
+  <li><b>Ollama.</b> <code>GET /api/version</code> (failure &rarr; &ldquo;Ollama not reachable&rdquo;), then <code>POST /api/show</code> for the model and its KV size. No process is spawned or stopped.</li>
+  <li><b>Cloud.</b> <code>check_settings()</code> has already confirmed URL/preset, model, API style and the https-with-key rule; <code>start()</code> resolves the key (<code>KVB_CLOUD_API_KEY</code>, else the variable named by <code>KVB_CLOUD_API_KEY_ENV</code>), builds the headers and probes the endpoint. A missing key, bad URL or HTTP 401/404 becomes a readable status message with the key redacted.</li>
+  <li>Both then follow the same path as llama.cpp: namespace <code>"{backend.name}|{model_id}"</code>, store index load, status text (SHADOW, location).</li>
+</ol>
 </section>
 
 <!-- ======================= 8. SHUTDOWN ======================= -->
@@ -828,6 +991,9 @@ stop_pid output/llama_server.pid <span class="s">"managed llama-server"</span></
   <tr><td>Whole-slot snapshots</td><td>llama.cpp slot save/restore stores the full slot, not individual chunks. Chunk hashes are the index and the hit-rate accounting; the restored state is one blob (about 70 MB per ~600 tokens).</td></tr>
   <tr><td>Model- and context-bound</td><td>A snapshot is valid only for the same model file and context size. Changing either requires a new cache.</td></tr>
   <tr><td>Ollama is shadow mode</td><td>Ollama exposes no KV-state API. KVBridge runs it in shadow mode with pseudo-tokens: the store tracks what LMCache <i>would</i> have reused and reports Ollama's own prompt-cache counters alongside.</td></tr>
+  <tr><td>Cloud is shadow mode</td><td>Hosted APIs never expose KV tensors, so nothing can be stored or restored. KVBridge accounts for chunks and reports the provider's <code>cached_tokens</code>.</td></tr>
+  <tr><td>Cloud privacy and cost</td><td>Prompts leave the machine and are billed. Provider caches have a minimum prompt length (about 1,024 tokens on OpenAI), a short lifetime, and rate limits; a short or cold prompt legitimately shows 0 cached tokens. Use <code>KVB_CLOUD_TOKEN_BUDGET</code>, and prefer <code>KVB_CLOUD_API_KEY_ENV</code> over storing a key.</td></tr>
+  <tr><td>Provider dialect differences</td><td>Only the OpenAI-compatible dialect is implemented. Providers that deviate (e.g. need other field names) are covered by <code>KVB_CLOUD_MAX_TOKENS_FIELD</code>, <code>KVB_CLOUD_SEND_TEMPERATURE</code>, <code>KVB_CLOUD_EXTRA_HEADERS</code>; native non-OpenAI APIs need a new backend.</td></tr>
   <tr><td>No remote tiers</td><td>Only L1 (RAM) and L2 (disk). There is no Redis/S3 tier and no multi-instance sharing.</td></tr>
   <tr><td>Warm-slot comparison</td><td>On a warm slot, <code>native</code> llama.cpp prefix caching is faster than <code>lmcache</code> (native avg 64 ms in our run). The value of the cache layer is persistence across restarts and capacity beyond one slot.</td></tr>
   <tr><td>Unused helper</td><td><code>common_prefix_len</code> in <code>hashing.py</code> is tested but not called by the engine.</td></tr>
@@ -840,6 +1006,12 @@ stop_pid output/llama_server.pid <span class="s">"managed llama-server"</span></
   <tr><td>Chunk-map chart unreadable with a single row</td><td>Enforce a minimum figure height of 220 px; covered by a unit test.</td></tr>
   <tr><td>README example drifted from real behaviour</td><td>Re-ran the example against the live stack and corrected the numbers.</td></tr>
   <tr><td>Port clashes on macOS</td><td>Reserved ports (5000, 8080, 9931, 11434) are avoided; GUI uses 7871 and the managed server 8089, both overridable via <code>KVB_*</code>.</td></tr>
+  <tr><td>Hard-coded engine settings (search paths, start timeout, reserved ports, keep-alive, models dir, seed, engine choice)</td><td>Moved into <code>Settings</code> with <code>KVB_*</code> variables and GUI fields; <code>test_config.py</code> asserts that <code>.env.example</code> lists every field.</td></tr>
+  <tr><td>Supporting several engines without <code>if engine == ...</code> chains</td><td>Engine registry plus capability attributes (<code>kind</code>, <code>supports_kv_export</code>) and <code>check_settings()</code>; GUI, scenarios and validation read capabilities, not names.</td></tr>
+  <tr><td>Providers differ (<code>max_tokens</code> vs <code>max_completion_tokens</code>, no <code>temperature</code>, chat vs completions)</td><td>Configurable API style, max-tokens field and temperature switch, plus provider presets and extra headers.</td></tr>
+  <tr><td>Provider cache would hide the cold baseline</td><td><code>cold</code> prepends a one-shot random nonce; <code>cached_tokens</code> is reported as ground truth.</td></tr>
+  <tr><td>Secret handling in a GUI-configurable app</td><td>Password box never pre-filled; key from a named env var; masked <code>to_display()</code>; redacted errors; <code>.env</code> write excludes the key unless requested, is atomic, mode 0600 and git-ignored; <code>http</code>+key refused for non-loopback hosts.</td></tr>
+  <tr><td>Half-applied configuration after a bad GUI edit</td><td><code>Settings.apply()</code> validates a candidate copy and commits only if valid, returning per-field problems.</td></tr>
   <tr><td>Unfair benchmark against native caching</td><td>The server is started with <code>--cache-ram 0</code> so native host-memory caching does not mask the measurement.</td></tr>
 </table>
 </section>
@@ -850,22 +1022,22 @@ stop_pid output/llama_server.pid <span class="s">"managed llama-server"</span></
 ├── kvbridge/
 │   ├── __init__.py
 │   ├── __main__.py        # python -m kvbridge
-│   ├── app.py             # Gradio GUI, AppState, main(), SIGTERM handler
-│   ├── backends.py        # LlamaCppBackend, OllamaBackend, make_backend
+│   ├── app.py             # Gradio GUI (registry-driven), AppState, main(), SIGTERM handler
+│   ├── backends.py        # engine registry, LlamaCppBackend, OllamaBackend, CloudBackend, make_backend
 │   ├── engine.py          # KVBridgeEngine: lookup, restore, compute, store
 │   ├── store.py           # L1 RAM / L2 disk tiered store
 │   ├── hashing.py         # chunking + chained hashes
 │   ├── metrics.py         # counters, TTFT, hit rates
 │   ├── charts.py          # Plotly figures
 │   ├── scenarios.py       # demo scenario registry
-│   └── config.py          # Settings.from_env()
+│   └── config.py          # Settings (GUI/env/.env), presets, update_env_file
 ├── tests/                 # unit + live tests
 ├── scripts/               # setup, start, stop, test, cleanup, install_lmcache
 ├── Docs/                  # Quickstart, Architecture, Research, this file
 ├── input/  output/        # tracked via .gitkeep, contents ignored
 ├── requirements.txt
 ├── pytest.ini
-├── .env.example
+├── .env.example           # every KVB_* variable, local and cloud examples
 └── README.md              # includes the Apache-2.0 licence statement</code></pre>
 </section>
 
@@ -873,7 +1045,7 @@ stop_pid output/llama_server.pid <span class="s">"managed llama-server"</span></
 <h2>12. Quick reference</h2>
 <pre><code><span class="c"># one-time setup (uv + .venv)</span>
 scripts/setup.sh
-cp .env.example .env          <span class="c"># then edit KVB_* values</span>
+cp .env.example .env          <span class="c"># then set KVB_ENGINE=llamacpp|ollama|cloud and its KVB_* values (or use the GUI)</span>
 
 <span class="c"># start in detached mode (prints the URL)</span>
 scripts/start.sh              <span class="c"># http://127.0.0.1:7871</span>
@@ -882,8 +1054,8 @@ scripts/start.sh              <span class="c"># http://127.0.0.1:7871</span>
 scripts/stop.sh
 
 <span class="c"># tests</span>
-scripts/test.sh               <span class="c"># 125 unit tests</span>
-scripts/test.sh --live        <span class="c"># + live tests (needs a model and llama-server)</span>
+scripts/test.sh               <span class="c"># 188 tests (5 skipped), cloud faked</span>
+scripts/test.sh --live        <span class="c"># + live tests (llama-server, Ollama, cloud path)</span>
 
 <span class="c"># remove .venv, node_modules and __pycache__</span>
 scripts/cleanup.sh</code></pre>
@@ -891,7 +1063,8 @@ scripts/cleanup.sh</code></pre>
   <tr><th>Item</th><th>Value</th></tr>
   <tr><td>GUI URL</td><td><code>http://127.0.0.1:7871</code></td></tr>
   <tr><td>Managed llama-server port</td><td><code>8089</code></td></tr>
-  <tr><td>Configuration</td><td><code>KVB_*</code> environment variables or <code>.env</code></td></tr>
+  <tr><td>Configuration</td><td>GUI, <code>KVB_*</code> environment variables or <code>.env</code> (priority in that order); engine via <code>KVB_ENGINE</code></td></tr>
+  <tr><td>Cloud quick start</td><td><code>KVB_ENGINE=cloud KVB_CLOUD_PROVIDER=openai KVB_CLOUD_MODEL=... KVB_CLOUD_API_KEY_ENV=OPENAI_API_KEY</code></td></tr>
   <tr><td>Licence</td><td>Apache-2.0</td></tr>
 </table>
 </section>
