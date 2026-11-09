@@ -1,0 +1,9 @@
+# Runtime dependencies (installed with: uv pip install -r requirements.txt)
+gradio>=6.0,<7
+requests>=2.32
+plotly>=5.24
+pandas>=2.2
+blake3>=1.0
+python-dotenv>=1.0
+# Test dependencies
+pytest>=8.0

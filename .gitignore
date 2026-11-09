@@ -1,0 +1,38 @@
+# Secrets / local configuration
+.env
+.env.*
+!.env.example
+
+# Any folder whose name starts with "_" (e.g. _sources/, _images/, _docs/, _blog/)
+_*/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+
+# Binary / archive artefacts
+*.onnx
+*.onnx.data
+*.so
+*.tgz
+*.tar.gz
+*.zip
+*.dylib
+
+# Tooling
+.playwright-mcp/
+AGENTS.md
+.bob/mcp.json
+
+# input/ and output/ folders are tracked, their content is not
+input/*
+!input/.gitkeep
+output/*
+!output/.gitkeep

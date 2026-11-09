@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KVBridge &mdash; Developer Documentation</title>
+<style>
+  :root{
+    --bg:#ffffff; --surface:#f6f8fa; --border:#d8dee4; --text:#1f2328; --muted:#59636e;
+    --accent:#0f62fe; --accent-soft:#edf5ff; --ok:#198038; --ok-soft:#defbe6;
+    --warn:#8e6a00; --warn-soft:#fcf4d6; --bad:#a2191f; --bad-soft:#fff1f1;
+    --code-bg:#161b22; --code-fg:#e6edf3; --l1:#0f62fe; --l2:#8a3ffc; --none:#a8a8a8;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth;scroll-padding-top:16px}
+  body{margin:0;font:15px/1.65 -apple-system,"Segoe UI",system-ui,Roboto,sans-serif;color:var(--text);background:var(--bg)}
+  a{color:var(--accent);text-decoration:none} a:hover{text-decoration:underline}
+  .layout{display:flex;min-height:100vh}
+  nav.side{position:sticky;top:0;align-self:flex-start;height:100vh;overflow-y:auto;width:290px;flex:0 0 290px;
+    background:var(--surface);border-right:1px solid var(--border);padding:22px 16px}
+  nav.side .brand{font-size:19px;font-weight:700;margin:0 0 2px}
+  nav.side .tag{color:var(--muted);font-size:12.5px;margin-bottom:16px}
+  nav.side ol{list-style:none;margin:0;padding:0}
+  nav.side li a{display:block;padding:5px 10px;border-radius:6px;color:var(--text);font-size:14px}
+  nav.side li a:hover{background:var(--accent-soft);text-decoration:none}
+  nav.side li ol{margin:0 0 4px 12px;border-left:1px solid var(--border)}
+  nav.side li ol a{font-size:13px;color:var(--muted)}
+  main{flex:1;min-width:0;max-width:980px;padding:36px 48px 80px}
+  h1{font-size:34px;line-height:1.2;margin:0 0 6px}
+  h2{font-size:25px;margin:54px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+  h3{font-size:18px;margin:28px 0 8px}
+  h4{font-size:15px;margin:20px 0 6px}
+  p{margin:0 0 12px}
+  .lead{font-size:17px;color:var(--muted);margin-bottom:20px}
+  .badges span{display:inline-block;font-size:12px;border:1px solid var(--border);background:var(--surface);
+    border-radius:20px;padding:2px 10px;margin:0 6px 6px 0;color:var(--muted)}
+  code{font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--surface);
+    border:1px solid var(--border);border-radius:4px;padding:1px 5px}
+  pre{background:var(--code-bg);color:var(--code-fg);border-radius:8px;padding:14px 16px;overflow-x:auto;
+    margin:10px 0 16px;font:12.8px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  pre code{background:none;border:0;padding:0;color:inherit;font-size:inherit}
+  pre .c{color:#8b949e} pre .k{color:#ff7b72} pre .s{color:#a5d6ff} pre .f{color:#d2a8ff} pre .n{color:#79c0ff}
+  .file{display:inline-block;font:12px ui-monospace,Menlo,monospace;background:var(--accent-soft);color:var(--accent);
+    border:1px solid #c6dcff;border-radius:4px 4px 0 0;padding:2px 9px;margin-top:8px;margin-bottom:-11px;position:relative}
+  table{border-collapse:collapse;width:100%;margin:10px 0 18px;font-size:14px}
+  th,td{border:1px solid var(--border);padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:var(--surface);font-weight:600}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  .note,.warn,.good,.bad{border-left:4px solid;border-radius:6px;padding:10px 14px;margin:14px 0}
+  .note{background:var(--accent-soft);border-color:var(--accent)}
+  .warn{background:var(--warn-soft);border-color:#d2a106}
+  .good{background:var(--ok-soft);border-color:var(--ok)}
+  .bad{background:var(--bad-soft);border-color:var(--bad)}
+  .note>b:first-child,.warn>b:first-child,.good>b:first-child,.bad>b:first-child{display:block;margin-bottom:2px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin:14px 0}
+  .card{border:1px solid var(--border);border-radius:8px;padding:12px 14px;background:var(--surface)}
+  .card h4{margin:0 0 4px}
+  .kpi{font-size:26px;font-weight:700;color:var(--accent);line-height:1.1}
+  .kpi small{display:block;font-size:12px;font-weight:400;color:var(--muted);margin-top:4px}
+  figure{margin:16px 0;border:1px solid var(--border);border-radius:8px;padding:12px;background:#fff;overflow-x:auto}
+  figure svg{display:block;margin:0 auto;max-width:100%;height:auto}
+  figcaption{font-size:13px;color:var(--muted);text-align:center;margin-top:8px}
+  details{border:1px solid var(--border);border-radius:8px;margin:10px 0;padding:8px 14px;background:var(--surface)}
+  details summary{cursor:pointer;font-weight:600}
+  .steps{counter-reset:s;list-style:none;padding:0;margin:12px 0}
+  .steps>li{counter-increment:s;position:relative;padding:4px 0 10px 40px}
+  .steps>li::before{content:counter(s);position:absolute;left:0;top:2px;width:26px;height:26px;border-radius:50%;
+    background:var(--accent);color:#fff;font-weight:700;font-size:13px;text-align:center;line-height:26px}
+  .pill{display:inline-block;font-size:11.5px;font-weight:600;border-radius:10px;padding:1px 8px;vertical-align:1px}
+  .pill.ok{background:var(--ok-soft);color:var(--ok)} .pill.no{background:var(--bad-soft);color:var(--bad)}
+  .pill.part{background:var(--warn-soft);color:var(--warn)}
+  .bar{height:14px;border-radius:7px;background:#e8ecf0;overflow:hidden}
+  .bar>i{display:block;height:100%;background:var(--accent)}
+  footer{margin-top:60px;padding-top:14px;border-top:1px solid var(--border);color:var(--muted);font-size:12.5px;text-align:center}
+  .top{position:fixed;right:18px;bottom:18px;background:var(--accent);color:#fff;border-radius:20px;padding:6px 14px;
+    font-size:13px;box-shadow:0 2px 6px rgba(0,0,0,.2)}
+  .top:hover{text-decoration:none;opacity:.9}
+  @media (max-width:900px){
+    .layout{display:block} nav.side{position:static;height:auto;width:auto;border-right:0;border-bottom:1px solid var(--border)}
+    main{padding:24px 18px 60px}
+  }
+  @media print{nav.side,.top{display:none} main{max-width:none;padding:0} pre{white-space:pre-wrap}}
+</style>
+</head>
+<body>
+<div class="layout" id="top">
+
+<!-- ======================= NAVIGATION ======================= -->
+<nav class="side" aria-label="Table of contents">
+  <p class="brand">KVBridge</p>
+  <div class="tag">Developer documentation &middot; v1.0.0</div>
+  <ol>
+    <li><a href="#overview">1. Overview &amp; purpose</a>
+      <ol><li><a href="#overview-why">Why it exists</a></li><li><a href="#overview-feasibility">Feasibility findings</a></li><li><a href="#overview-results">Measured results</a></li></ol></li>
+    <li><a href="#architecture">2. System architecture</a>
+      <ol><li><a href="#arch-diagram">Component diagram</a></li><li><a href="#arch-modules">Module reference</a></li><li><a href="#arch-hashing">Hashing &amp; keys</a></li><li><a href="#arch-store">Tiered store</a></li><li><a href="#arch-engine">Cached engine &amp; modes</a></li><li><a href="#arch-config">Configuration</a></li></ol></li>
+    <li><a href="#lifecycle">3. Lifecycle management</a>
+      <ol><li><a href="#life-startup">Startup sequence</a></li><li><a href="#life-sigterm">SIGTERM handling</a></li><li><a href="#life-states">Process states</a></li></ol></li>
+    <li><a href="#gui">4. GUI implementation</a>
+      <ol><li><a href="#gui-tabs">Tabs</a></li><li><a href="#gui-state">AppState &amp; connect</a></li><li><a href="#gui-about">About tab</a></li></ol></li>
+    <li><a href="#tests">5. Test suite</a>
+      <ol><li><a href="#tests-unit">Unit tests (125)</a></li><li><a href="#tests-live">Live tests (128)</a></li><li><a href="#tests-run">Running</a></li></ol></li>
+    <li><a href="#servers">6. Server integration</a>
+      <ol><li><a href="#srv-llama">llama.cpp</a></li><li><a href="#srv-ollama">Ollama</a></li><li><a href="#srv-compare">Comparison</a></li></ol></li>
+    <li><a href="#connection">7. Connection flow</a>
+      <ol><li><a href="#conn-flow">Connect sequence</a></li><li><a href="#conn-spawn">Managed spawn</a></li></ol></li>
+    <li><a href="#shutdown">8. Shutdown &amp; orphans</a>
+      <ol><li><a href="#sd-layers">Defence in depth</a></li><li><a href="#sd-bug">The orphan bug</a></li><li><a href="#sd-scripts">Scripts</a></li></ol></li>
+    <li><a href="#regression">9. Signal regression test</a></li>
+    <li><a href="#limits">10. Limitations &amp; challenges</a></li>
+    <li><a href="#layout-ref">11. Project layout</a></li>
+    <li><a href="#quick">12. Quick reference</a></li>
+  </ol>
+</nav>
+
+<main>
+<header>
+  <h1>KVBridge &mdash; Developer Documentation</h1>
+  <p class="lead">An LMCache-style KV cache management layer for local LLM inference engines
+  (<strong>llama.cpp</strong> and <strong>Ollama</strong>), with a Gradio GUI that makes cache hits, tier usage and latency gains visible.</p>
+  <div class="badges"><span>Python 3.12</span><span>Gradio 6</span><span>blake3</span><span>llama.cpp slots API</span><span>Ollama REST</span><span>Apache-2.0</span><span>macOS / Linux, no cloud</span></div>
+</header>
+
+<!-- ======================= 1. OVERVIEW ======================= -->
+<section id="overview">
+<h2>1. Application overview &amp; purpose</h2>
+<p>KVBridge demonstrates the core value proposition of <a href="https://github.com/LMCache/LMCache">LMCache</a> &mdash;
+<em>a KV cache management layer for scalable LLM inference</em> &mdash; on a developer laptop.
+LMCache itself targets server-side engines (vLLM, SGLang, TensorRT-LLM) and needs CUDA. KVBridge
+<strong>re-implements the LMCache concepts</strong> (chunked, content-addressed KV reuse; tiered storage; engine-independent keys)
+on top of the two local engines most developers actually run.</p>
+
+<div class="note"><b>What KVBridge is, and is not</b>
+KVBridge is an LMCache-<em>style</em> implementation. It is <strong>not</strong> the LMCache package. It optionally reuses LMCache's
+native <code>TokenHasher</code> when the real package can be built (<code>scripts/install_lmcache.sh</code>); otherwise a
+bit-compatible <code>blake3</code> rolling hash is used.</div>
+
+<h3 id="overview-why">1.1 Why it exists</h3>
+<p>Prefill (processing the prompt into a KV cache) dominates time-to-first-token (TTFT) for long, repeated prefixes such as documents,
+system prompts and chat histories. If the KV tensors for a prefix already exist, the engine can skip that compute. KVBridge makes that
+visible and measurable with three comparable modes:</p>
+<table>
+  <tr><th>Mode</th><th>Behaviour</th><th>Purpose</th></tr>
+  <tr><td><code>cold</code></td><td>Native cache erased, <code>cache_prompt=false</code>. Every request recomputes the full prompt.</td><td>Baseline</td></tr>
+  <tr><td><code>native</code></td><td>Engine's own in-slot prefix reuse (<code>cache_prompt=true</code>). Lost on restart / eviction.</td><td>What you get for free</td></tr>
+  <tr><td><code>lmcache</code></td><td>KVBridge tiered store: chunk-hash lookup, KV snapshot restore from RAM (L1) or disk (L2), save on miss.</td><td>Managed, persistent cache</td></tr>
+</table>
+
+<h3 id="overview-feasibility">1.2 Feasibility findings (research summary)</h3>
+<table>
+  <tr><th>Question</th><th>Finding</th></tr>
+  <tr><td>Does LMCache officially support Ollama / llama.cpp?</td><td><span class="pill no">No</span> Supported: vLLM, SGLang, TRT-LLM. Issue #923 (Ollama / LM Studio) was closed &ldquo;not planned&rdquo;.</td></tr>
+  <tr><td>Can the PyPI wheel run on macOS?</td><td><span class="pill no">No</span> Wheels are manylinux-only and require CUDA (<code>CUDA_HOME not set</code>).</td></tr>
+  <tr><td>Can LMCache's hasher be used standalone?</td><td><span class="pill part">Partly</span> With <code>NO_GPU_EXT=1</code> plus extra dependencies the native <code>TokenHasher</code> builds.</td></tr>
+  <tr><td>Can llama.cpp export/import KV state?</td><td><span class="pill ok">Yes</span> <code>/slots/{id}?action=save|restore|erase</code> with <code>--slot-save-path</code>, plus <code>/tokenize</code> for exact token ids.</td></tr>
+  <tr><td>Can Ollama export/import KV state?</td><td><span class="pill no">No</span> No public KV API. It does report <code>prompt_eval_cached_count</code>, enabling an accounting-only <em>shadow mode</em>.</td></tr>
+</table>
+<p>Conclusion: <strong>full integration with llama.cpp</strong> (real tensors saved/restored) and <strong>shadow-mode integration with Ollama</strong>.</p>
+
+<h3 id="overview-results">1.3 Measured results</h3>
+<p>Apple Silicon, <code>llama3.2</code> 3B Q4_K_M (28 layers, 8 KV heads, head dim 128). Doc Q&amp;A scenario: ~1.9k-token document, 4 questions per mode, 12 requests.</p>
+<div class="grid">
+  <div class="card"><div class="kpi">4,554 ms<small>cold &mdash; average TTFT</small></div></div>
+  <div class="card"><div class="kpi">999 ms<small>lmcache &mdash; average TTFT (first request 3,848 ms, then 44&ndash;53 ms)</small></div></div>
+  <div class="card"><div class="kpi">4.6&times;<small>cold &rarr; lmcache speed-up</small></div></div>
+  <div class="card"><div class="kpi">75% / 58%<small>chunk hit rate / token reuse</small></div></div>
+</div>
+<table>
+  <tr><th>Measurement</th><th class="num">Result</th></tr>
+  <tr><td>~805-token prompt: cold</td><td class="num">495 ms</td></tr>
+  <tr><td>~805-token prompt: L1 (RAM) hit</td><td class="num">11 ms</td></tr>
+  <tr><td>~805-token prompt: L2 (disk) hit after an engine restart</td><td class="num">13 ms</td></tr>
+  <tr><td>Playground after simulated restart</td><td class="num">1,423 / 1,440 tokens from L2, TTFT 75 ms, restore 93 ms</td></tr>
+  <tr><td>Snapshot size</td><td class="num">~600 tokens &asymp; 70 MB &middot; 1,956 tokens &asymp; 214 MB</td></tr>
+  <tr><td>Snapshot save / restore time</td><td class="num">5&ndash;14 ms</td></tr>
+</table>
+<div class="warn"><b>Interpretation</b>
+Results are from one machine and one model. <code>native</code> is faster than <code>lmcache</code> on a warm slot (64 ms vs. a 44&ndash;53 ms steady state plus the one-time 3.8 s first fill);
+the lmcache advantage is <em>persistence and capacity</em> (survives restart, spans many prefixes), not beating an in-slot hit.</div>
+</section>
+
+<!-- ======================= 2. ARCHITECTURE ======================= -->
+<section id="architecture">
+<h2>2. System architecture &amp; components</h2>
+
+<h3 id="arch-diagram">2.1 Component diagram</h3>
+<figure>
+<svg viewBox="0 0 860 430" width="860" role="img" aria-label="KVBridge component diagram" font-family="-apple-system,Segoe UI,sans-serif" font-size="13">
+  <defs><marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#59636e"/></marker></defs>
+  <rect x="10" y="10" width="840" height="64" rx="8" fill="#edf5ff" stroke="#0f62fe"/>
+  <text x="430" y="34" text-anchor="middle" font-weight="700" fill="#0f62fe">Gradio GUI &mdash; kvbridge/app.py</text>
+  <text x="430" y="55" text-anchor="middle" fill="#1f2328">Engine &amp; Cache &middot; Dashboard &middot; Playground &middot; Scenarios &middot; Cache Inspector &middot; About</text>
+  <rect x="10" y="100" width="260" height="70" rx="8" fill="#f6f8fa" stroke="#8c959f"/>
+  <text x="140" y="124" text-anchor="middle" font-weight="700">scenarios.py</text><text x="140" y="145" text-anchor="middle" fill="#59636e">doc_qa &middot; multi_turn &middot; shared sys &middot; restart</text>
+  <rect x="300" y="100" width="260" height="70" rx="8" fill="#f6f8fa" stroke="#8c959f"/>
+  <text x="430" y="124" text-anchor="middle" font-weight="700">charts.py</text><text x="430" y="145" text-anchor="middle" fill="#59636e">Plotly figures &middot; KPI &middot; tables</text>
+  <rect x="590" y="100" width="260" height="70" rx="8" fill="#f6f8fa" stroke="#8c959f"/>
+  <text x="720" y="124" text-anchor="middle" font-weight="700">metrics.py</text><text x="720" y="145" text-anchor="middle" fill="#59636e">RequestRecord &middot; Metrics.export()</text>
+  <rect x="200" y="205" width="460" height="86" rx="8" fill="#fff" stroke="#0f62fe" stroke-width="2"/>
+  <text x="430" y="230" text-anchor="middle" font-weight="700" fill="#0f62fe">CachedEngine &mdash; engine.py</text>
+  <text x="430" y="251" text-anchor="middle" fill="#1f2328">modes: cold | native | lmcache</text>
+  <text x="430" y="271" text-anchor="middle" fill="#59636e">_infer_full (KV export) &middot; _infer_shadow (accounting)</text>
+  <rect x="10" y="325" width="200" height="90" rx="8" fill="#f6f8fa" stroke="#8c959f"/>
+  <text x="110" y="349" text-anchor="middle" font-weight="700">hashing.py</text><text x="110" y="370" text-anchor="middle" fill="#59636e">blake3 rolling prefix hash</text><text x="110" y="388" text-anchor="middle" fill="#59636e">LMCache adapter (optional)</text>
+  <rect x="235" y="325" width="200" height="90" rx="8" fill="#f6f8fa" stroke="#8c959f"/>
+  <text x="335" y="349" text-anchor="middle" font-weight="700">store.py</text><text x="335" y="370" text-anchor="middle" fill="#59636e">TieredStore</text><text x="335" y="388" text-anchor="middle" fill="#59636e">L1 RAM &rarr; L2 disk (LRU)</text>
+  <rect x="460" y="325" width="190" height="90" rx="8" fill="#f6f8fa" stroke="#8c959f"/>
+  <text x="555" y="349" text-anchor="middle" font-weight="700">LlamaCppBackend</text><text x="555" y="370" text-anchor="middle" fill="#59636e">backends.py</text><text x="555" y="388" text-anchor="middle" fill="#198038">KV export: yes</text>
+  <rect x="670" y="325" width="180" height="90" rx="8" fill="#f6f8fa" stroke="#8c959f"/>
+  <text x="760" y="349" text-anchor="middle" font-weight="700">OllamaBackend</text><text x="760" y="370" text-anchor="middle" fill="#59636e">backends.py</text><text x="760" y="388" text-anchor="middle" fill="#a2191f">KV export: no (shadow)</text>
+  <g stroke="#59636e" stroke-width="1.5" fill="none" marker-end="url(#ar)">
+    <path d="M430 74 V205"/><path d="M140 170 V190 H330 V205"/><path d="M720 170 V190 H530 V205"/>
+    <path d="M300 291 V308 H110 V325"/><path d="M360 291 V325"/><path d="M500 291 V308 H555 V325"/><path d="M580 291 V308 H760 V325"/>
+  </g>
+</svg>
+<figcaption>Figure 1 &mdash; The GUI drives <code>CachedEngine</code>, which composes hashing, the tiered store and one backend.</figcaption>
+</figure>
+
+<h3 id="arch-modules">2.2 Module reference</h3>
+<table>
+  <tr><th>Module</th><th>Responsibility</th><th>Key symbols</th></tr>
+  <tr><td><code>config.py</code></td><td>Env/.env settings and validation</td><td><code>Settings.from_env()</code>, <code>Settings.validate()</code></td></tr>
+  <tr><td><code>hashing.py</code></td><td>Chunk keys</td><td><code>ChunkHasher</code>, <code>LMCacheHasherAdapter</code>, <code>make_hasher()</code>, <code>common_prefix_len()</code></td></tr>
+  <tr><td><code>store.py</code></td><td>L1/L2 storage, LRU, persisted index</td><td><code>TieredStore.lookup / fetch / put / resize / clear / stats / entries</code></td></tr>
+  <tr><td><code>backends.py</code></td><td>Engine adapters and server management</td><td><code>LlamaCppBackend</code>, <code>OllamaBackend</code>, <code>BackendError</code></td></tr>
+  <tr><td><code>engine.py</code></td><td>Mode routing, cache orchestration</td><td><code>CachedEngine.infer</code>, <code>_infer_full</code>, <code>_infer_shadow</code>, <code>simulate_engine_restart</code></td></tr>
+  <tr><td><code>metrics.py</code></td><td>Per-request records, JSON export</td><td><code>RequestRecord</code>, <code>Metrics.export(dir)</code></td></tr>
+  <tr><td><code>charts.py</code></td><td>Gradio-free figure builders</td><td><code>ttft_figure</code>, <code>tokens_figure</code>, <code>hit_rate_figure</code>, <code>tier_figure</code>, <code>chunk_map_figure</code>, <code>mode_compare_figure</code>, <code>kpi_markdown</code>, <code>fmt_bytes</code></td></tr>
+  <tr><td><code>scenarios.py</code></td><td>Reproducible demos</td><td><code>SCENARIOS</code>, <code>load_documents()</code></td></tr>
+  <tr><td><code>app.py</code></td><td>Gradio UI, <code>AppState</code>, <code>main()</code></td><td><code>build_app()</code>, <code>main()</code></td></tr>
+</table>
+
+<h3 id="arch-hashing">2.3 Hashing &amp; cache keys</h3>
+<p>Each prompt is tokenised, split into fixed-size chunks (default <strong>256 tokens</strong>) and hashed with a <em>rolling prefix hash</em>,
+so chunk <em>i</em>'s key depends on every earlier chunk. Equal keys therefore imply equal prefixes. A partial tail chunk is discarded.</p>
+<pre><code><span class="c"># h_0 = seed(namespace)</span>
+h_i = blake3( h_{i-1} || pack_be_uint32(chunk_i) )
+
+<span class="c"># namespace = "{backend.name}|{model_id}"  -> isolates models and engines</span></code></pre>
+<ul>
+  <li>Tokens are packed as big-endian <code>uint32</code>.</li>
+  <li><code>make_hasher(chunk_size, ns, prefer_lmcache)</code> returns <code>LMCacheHasherAdapter</code> when the real package is importable and requested, else <code>ChunkHasher</code>.</li>
+  <li><code>common_prefix_len(a, b)</code> is a small helper returning how many leading tokens two sequences share (a utility; the engine itself matches on chunk hashes).</li>
+</ul>
+
+<h3 id="arch-store">2.4 Tiered store</h3>
+<figure>
+<svg viewBox="0 0 760 170" width="760" role="img" aria-label="Tier flow" font-family="-apple-system,Segoe UI,sans-serif" font-size="13">
+  <defs><marker id="ar2" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#59636e"/></marker></defs>
+  <rect x="10" y="40" width="150" height="70" rx="8" fill="#f6f8fa" stroke="#8c959f"/><text x="85" y="70" text-anchor="middle" font-weight="700">GPU / engine slot</text><text x="85" y="90" text-anchor="middle" fill="#59636e">live KV cache</text>
+  <rect x="270" y="40" width="200" height="70" rx="8" fill="#edf5ff" stroke="#0f62fe"/><text x="370" y="70" text-anchor="middle" font-weight="700" fill="#0f62fe">L1 &mdash; RAM</text><text x="370" y="90" text-anchor="middle" fill="#59636e">fast, volatile, LRU</text>
+  <rect x="580" y="40" width="170" height="70" rx="8" fill="#f3ecff" stroke="#8a3ffc"/><text x="665" y="70" text-anchor="middle" font-weight="700" fill="#8a3ffc">L2 &mdash; disk</text><text x="665" y="90" text-anchor="middle" fill="#59636e">persistent, LRU</text>
+  <g stroke="#59636e" stroke-width="1.5" fill="none" marker-end="url(#ar2)">
+    <path d="M160 60 H270"/><path d="M470 60 H580"/><path d="M270 92 H160"/><path d="M580 92 H470"/>
+  </g>
+  <text x="215" y="52" text-anchor="middle" fill="#59636e" font-size="11">save</text><text x="525" y="52" text-anchor="middle" fill="#59636e" font-size="11">write-through</text>
+  <text x="215" y="108" text-anchor="middle" fill="#59636e" font-size="11">restore</text><text x="525" y="108" text-anchor="middle" fill="#59636e" font-size="11">promote on hit</text>
+  <text x="380" y="150" text-anchor="middle" fill="#59636e">index persisted to disk; ignored (with a warning) if the chunk size changed</text>
+</svg>
+<figcaption>Figure 2 &mdash; Snapshot flow between the live engine slot and the two storage tiers.</figcaption>
+</figure>
+<p><code>TieredStore</code> internals: <code>lookup</code> (longest cached prefix), <code>chunk_status</code> (per-chunk L1/L2/none for the chunk map), <code>fetch</code>, <code>put</code>,
+<code>_drop_superseded</code> (a longer snapshot replaces shorter ones with the same prefix), <code>_make_room_l1 / _make_room_l2</code> (LRU eviction), <code>_write_l2</code>,
+<code>_save_index / _load_index</code>, <code>clear(tiers)</code>, <code>resize</code>, <code>stats</code>, <code>entries</code>.</p>
+
+<h3 id="arch-engine">2.5 Cached engine &amp; modes</h3>
+<p><code>CachedEngine.infer()</code> holds an <code>RLock</code>, routes to <code>_infer_full</code> if <code>backend.supports_kv_export</code> else <code>_infer_shadow</code>, and records any exception on the <code>RequestRecord</code>.</p>
+<div class="file">kvbridge/engine.py &mdash; _infer_full (abridged)</div>
+<pre><code><span class="k">def</span> <span class="f">_infer_full</span>(self, prompt, rec, n_predict, temperature):
+    b = self.backend
+    tokens = b.tokenize(prompt)
+    <span class="k">if</span> rec.mode == <span class="s">"cold"</span>:
+        b.reset_native_cache()
+        self._fill(rec, b.generate(prompt, tokens, n_predict, <span class="n">False</span>, temperature)); <span class="k">return</span>
+    <span class="k">if</span> rec.mode == <span class="s">"native"</span>:
+        self._fill(rec, b.generate(prompt, tokens, n_predict, <span class="n">True</span>, temperature)); <span class="k">return</span>
+
+    <span class="c"># ---- lmcache mode</span>
+    hashes = self.hasher.chunk_hashes(tokens)
+    rec.chunks_total  = len(hashes)
+    rec.chunk_status  = self.store.chunk_status(hashes)   <span class="c"># drives the chunk map</span>
+    b.reset_native_cache()                               <span class="c"># engine lost its own KV</span>
+    match = self.store.lookup(hashes)
+    rec.lmcache_match_tokens, rec.chunks_hit, rec.tier = match.tokens, match.chunks, match.tier
+    <span class="k">if</span> match.entry <span class="k">is not None</span>:
+        <span class="k">try</span>:
+            blob = self.store.fetch(match.entry)         <span class="c"># L1, else L2 (promoted to L1)</span>
+            n = b.restore_state(blob)                    <span class="c"># POST /slots/0?action=restore</span>
+        <span class="k">except</span> (BackendError, KeyError, OSError) <span class="k">as</span> exc:
+            log.warning(<span class="s">"restore failed (%s); falling back to recompute"</span>, exc)
+            rec.chunks_hit, rec.lmcache_match_tokens, rec.tier = <span class="n">0</span>, <span class="n">0</span>, <span class="s">"none"</span>
+            b.reset_native_cache()
+    res = b.generate(prompt, tokens, n_predict, <span class="n">True</span>, temperature)
+    self._fill(rec, res)
+    <span class="k">if</span> len(hashes) &gt; rec.chunks_hit:                    <span class="c"># new chunks were computed -> store</span>
+        blob, n_saved = b.save_state()                   <span class="c"># POST /slots/0?action=save</span>
+        self.store.put(hashes, len(hashes) * self.s.chunk_size, blob,
+                       note=f<span class="s">"{n_saved} tok snapshot"</span>)</code></pre>
+<div class="note"><b>Granularity</b> Chunk hashes are used for <em>matching</em> (how much of a prefix is covered). Storage granularity is a whole-slot snapshot, because llama.cpp saves/restores a slot, not individual chunks.</div>
+
+<h3 id="arch-config">2.6 Configuration</h3>
+<p>All settings come from <code>KVB_*</code> environment variables or <code>.env</code> (copy <code>.env.example</code>). Nothing is hard-coded.</p>
+<table>
+  <tr><th>Variable</th><th>Default</th><th>Meaning</th></tr>
+  <tr><td><code>KVB_LLAMA_SERVER_BIN</code></td><td><em>auto</em></td><td>Path to <code>llama-server</code> (else PATH, Homebrew, <code>Ollama.app</code>)</td></tr>
+  <tr><td><code>KVB_LLAMA_URL</code></td><td><em>empty</em></td><td>Attach to an external llama-server (disables managed spawn / restart)</td></tr>
+  <tr><td><code>KVB_OLLAMA_URL</code> / <code>KVB_OLLAMA_MODEL</code></td><td><code>http://127.0.0.1:11434</code> / <code>llama3.2:latest</code></td><td>Ollama endpoint and model</td></tr>
+  <tr><td><code>KVB_MODEL_PATH</code></td><td><em>empty</em></td><td>Explicit GGUF; empty resolves the Ollama model blob</td></tr>
+  <tr><td><code>KVB_MANAGED_HOST</code> / <code>KVB_MANAGED_PORT</code></td><td><code>127.0.0.1</code> / <code>8089</code></td><td>Managed server bind (ports 5000, 8080, 9931, 11434 rejected)</td></tr>
+  <tr><td><code>KVB_CTX_SIZE</code></td><td><code>8192</code></td><td>Context size (must be &ge; chunk size)</td></tr>
+  <tr><td><code>KVB_N_GPU_LAYERS</code></td><td><code>-1</code></td><td><code>-ngl</code> added only when &ge; 0</td></tr>
+  <tr><td><code>KVB_CACHE_RAM_MB</code></td><td><code>0</code></td><td>llama.cpp's own RAM prompt cache (0 keeps comparisons honest)</td></tr>
+  <tr><td><code>KVB_EXTRA_ARGS</code></td><td><em>empty</em></td><td>Extra server flags</td></tr>
+  <tr><td><code>KVB_REQUEST_TIMEOUT</code></td><td><code>300</code></td><td>HTTP timeout (s)</td></tr>
+  <tr><td><code>KVB_CHUNK_SIZE</code></td><td><code>256</code></td><td>Tokens per chunk</td></tr>
+  <tr><td><code>KVB_L1_MB</code> / <code>KVB_L2_MB</code></td><td><code>2048</code> / <code>8192</code></td><td>Tier capacities</td></tr>
+  <tr><td><code>KVB_WRITE_THROUGH</code></td><td><code>true</code></td><td>Write to L2 immediately (survives restarts)</td></tr>
+  <tr><td><code>KVB_USE_LMCACHE_HASHER</code></td><td><code>false</code></td><td>Use real LMCache <code>TokenHasher</code> if installed</td></tr>
+  <tr><td><code>KVB_STORE_DIR / SLOT_DIR / LOG_DIR / INPUT_DIR / OUTPUT_DIR</code></td><td>under project root</td><td>Folder overrides</td></tr>
+  <tr><td><code>KVB_N_PREDICT</code> / <code>KVB_TEMPERATURE</code></td><td><code>48</code> / <code>0.2</code></td><td>Generation defaults</td></tr>
+  <tr><td><code>KVB_GUI_HOST</code> / <code>KVB_GUI_PORT</code></td><td><code>127.0.0.1</code> / <code>7871</code></td><td>GUI bind</td></tr>
+</table>
+<p><code>Settings.validate()</code> rejects: <code>chunk_size &lt; 1</code>, <code>ctx_size &lt; chunk_size</code>, negative tier sizes, both tiers at 0, invalid ports and reserved managed ports.
+<code>main()</code> turns any problem into a <code>SystemExit</code> before anything starts.</p>
+</section>
+
+<!-- ======================= 3. LIFECYCLE ======================= -->
+<section id="lifecycle">
+<h2>3. Lifecycle management</h2>
+<p>KVBridge owns up to two processes: the <strong>GUI process</strong> (<code>python -m kvbridge</code>) and, optionally, a <strong>managed <code>llama-server</code></strong> child.
+Lifecycle code exists to guarantee that the child never outlives the GUI.</p>
+
+<h3 id="life-startup">3.1 Startup sequence</h3>
+<ol class="steps">
+  <li><b>Launch.</b> <code>scripts/start.sh</code> starts <code>python -m kvbridge</code> through a tiny Python <code>Popen(start_new_session=True)</code> so the GUI survives the terminal closing. PID &rarr; <code>output/kvbridge.pid</code>, log &rarr; <code>output/logs/kvbridge.log</code>.</li>
+  <li><b>Configure.</b> <code>Settings.from_env()</code> reads <code>KVB_*</code> and <code>.env</code>; <code>settings.validate()</code> aborts with <code>SystemExit("Invalid configuration: ...")</code> on any problem.</li>
+  <li><b>Build.</b> <code>AppState(settings)</code> (no engine yet), <code>build_app(state)</code>, then <code>demo.queue(default_concurrency_limit=4)</code>.</li>
+  <li><b>Announce.</b> Prints <code>KVBridge GUI: http://host:port</code>.</li>
+  <li><b>Install signal handler</b> for SIGTERM (see below).</li>
+  <li><b>Serve.</b> <code>demo.launch(...)</code> inside <code>try</code>; <code>finally</code> stops the engine if one is connected.</li>
+  <li><b>Wait.</b> <code>start.sh</code> polls the URL for up to 60 s and prints <code>KVBridge is running: http://127.0.0.1:7871 (pid N, log: ...)</code>; if the process dies it prints the log tail and exits 1.</li>
+</ol>
+
+<h3 id="life-sigterm">3.2 SIGTERM handling</h3>
+<p>Python's default disposition for SIGTERM terminates the interpreter <strong>immediately, without unwinding the stack</strong>: <code>finally</code> blocks and <code>atexit</code> handlers do not run.
+<code>scripts/stop.sh</code> sends SIGTERM, so without a handler the managed <code>llama-server</code> would be orphaned. KVBridge converts SIGTERM into a normal interpreter exit.</p>
+<div class="file">kvbridge/app.py &mdash; main()</div>
+<pre><code><span class="k">def</span> <span class="f">main</span>() -&gt; <span class="n">None</span>:
+    logging.basicConfig(level=logging.INFO, format=<span class="s">"%(asctime)s %(levelname)s %(name)s: %(message)s"</span>)
+    settings = Settings.from_env()
+    problems = settings.validate()
+    <span class="k">if</span> problems:
+        <span class="k">raise</span> SystemExit(<span class="s">"Invalid configuration: "</span> + <span class="s">"; "</span>.join(problems))
+    state = AppState(settings)
+    demo = build_app(state)
+    demo.queue(default_concurrency_limit=<span class="n">4</span>)
+    print(f<span class="s">"\n KVBridge GUI:  http://{settings.gui_host}:{settings.gui_port}\n"</span>, flush=<span class="n">True</span>)
+    <span class="c"># Turn SIGTERM (scripts/stop.sh) into a normal exit so ``finally`` stops the</span>
+    <span class="c"># managed llama-server instead of leaving it orphaned.</span>
+    signal.signal(signal.SIGTERM, <span class="k">lambda</span> *_: sys.exit(<span class="n">0</span>))
+    <span class="k">try</span>:
+        demo.launch(server_name=settings.gui_host, server_port=settings.gui_port, show_error=<span class="n">True</span>,
+                    css=CSS, theme=gr.themes.Soft(primary_hue=<span class="s">"blue"</span>), inbrowser=<span class="n">False</span>)
+    <span class="k">finally</span>:
+        <span class="k">if</span> state.engine:
+            state.engine.stop()</code></pre>
+<p><code>sys.exit(0)</code> raises <code>SystemExit</code> in the main thread, which propagates out of <code>demo.launch()</code>, runs <code>finally</code>, and calls
+<code>CachedEngine.stop()</code> &rarr; <code>LlamaCppBackend.stop()</code> (see <a href="#shutdown">section 8</a>). Ctrl-C (SIGINT) already raised <code>KeyboardInterrupt</code> and took the same path.</p>
+
+<h3 id="life-states">3.3 Process states</h3>
+<figure>
+<svg viewBox="0 0 820 190" width="820" role="img" aria-label="State machine" font-family="-apple-system,Segoe UI,sans-serif" font-size="13">
+  <defs><marker id="ar3" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#59636e"/></marker></defs>
+  <rect x="10" y="60" width="120" height="56" rx="28" fill="#f6f8fa" stroke="#8c959f"/><text x="70" y="93" text-anchor="middle" font-weight="700">Idle GUI</text>
+  <rect x="190" y="60" width="140" height="56" rx="28" fill="#edf5ff" stroke="#0f62fe"/><text x="260" y="93" text-anchor="middle" font-weight="700">Connecting</text>
+  <rect x="390" y="60" width="140" height="56" rx="28" fill="#defbe6" stroke="#198038"/><text x="460" y="93" text-anchor="middle" font-weight="700">Connected</text>
+  <rect x="590" y="60" width="140" height="56" rx="28" fill="#fff1f1" stroke="#a2191f"/><text x="660" y="93" text-anchor="middle" font-weight="700">Stopping</text>
+  <rect x="740" y="130" width="70" height="40" rx="20" fill="#f6f8fa" stroke="#8c959f"/><text x="775" y="155" text-anchor="middle" font-weight="700">Exit</text>
+  <g stroke="#59636e" stroke-width="1.5" fill="none" marker-end="url(#ar3)">
+    <path d="M130 88 H190"/><path d="M330 88 H390"/><path d="M530 88 H590"/><path d="M700 116 L750 132"/>
+    <path d="M260 60 C260 20 70 20 70 60"/><path d="M460 116 C460 170 260 170 260 116"/>
+  </g>
+  <text x="160" y="80" text-anchor="middle" font-size="11" fill="#59636e">Connect</text>
+  <text x="360" y="80" text-anchor="middle" font-size="11" fill="#59636e">ready</text>
+  <text x="560" y="80" text-anchor="middle" font-size="11" fill="#59636e">SIGTERM / SIGINT / Disconnect</text>
+  <text x="165" y="26" text-anchor="middle" font-size="11" fill="#59636e">BackendError &rarr; status text</text>
+  <text x="360" y="176" text-anchor="middle" font-size="11" fill="#59636e">Connect again: stop old engine first</text>
+</svg>
+<figcaption>Figure 3 &mdash; GUI process states. &ldquo;Stopping&rdquo; always runs <code>engine.stop()</code>.</figcaption>
+</figure>
+
+<table>
+  <tr><th>Event</th><th>Handler</th><th>Effect on the managed server</th></tr>
+  <tr><td>Click <b>Connect</b> while connected</td><td><code>connect()</code></td><td>Old engine stopped (<code>state.engine.stop()</code>) before the new one is built</td></tr>
+  <tr><td>Click <b>Disconnect</b></td><td><code>disconnect()</code></td><td><code>engine.stop()</code>; message &ldquo;a managed llama-server was stopped&rdquo;</td></tr>
+  <tr><td>Click <b>Simulate engine restart</b></td><td><code>CachedEngine.simulate_engine_restart()</code></td><td>Hard restart of a managed server, L1 cleared, L2 kept</td></tr>
+  <tr><td><code>scripts/stop.sh</code> (SIGTERM)</td><td><code>signal.signal</code> &rarr; <code>sys.exit(0)</code> &rarr; <code>finally</code></td><td>Process group SIGTERM, escalate to SIGKILL after 15 s</td></tr>
+  <tr><td>Ctrl-C (SIGINT)</td><td><code>KeyboardInterrupt</code> &rarr; <code>finally</code></td><td>Same as above</td></tr>
+  <tr><td>SIGKILL / power loss</td><td>none possible</td><td>Child survives; <code>stop.sh</code> cleans it via <code>output/llama_server.pid</code></td></tr>
+</table>
+</section>
+
+<!-- ======================= 4. GUI ======================= -->
+<section id="gui">
+<h2>4. GUI implementation</h2>
+<p>The GUI is a single <code>gr.Blocks</code> app (Gradio 6.31, <code>fill_width=True</code>, <code>Soft</code> blue theme) built by <code>build_app(state)</code>.
+Analytics are disabled with <code>GRADIO_ANALYTICS_ENABLED=False</code> at the top of <code>app.py</code>, so no network traffic leaves the machine. All plotting logic lives in <code>charts.py</code>, which does not import Gradio, so it is unit-testable.</p>
+
+<h3 id="gui-tabs">4.1 Tabs</h3>
+<table>
+  <tr><th>#</th><th>Tab</th><th>Controls</th><th>Shows</th></tr>
+  <tr><td>1</td><td><b>Engine &amp; Cache</b></td><td>Engine radio (<code>llamacpp</code> | <code>ollama</code>), model, context, chunk size, L1/L2 sliders, write-through, real-hasher checkbox, <i>Connect / (re)start</i>, <i>Disconnect</i></td><td>Status box (engine, model, ctx, FULL vs SHADOW mode, hasher, KV bytes/token)</td></tr>
+  <tr><td>2</td><td><b>Dashboard</b></td><td><i>Refresh now</i>, <i>Reset metrics</i>, <i>Export metrics JSON</i></td><td>KPI table, TTFT, tokens computed vs reused, hit rate, mode comparison, tier occupancy, last 25 requests</td></tr>
+  <tr><td>3</td><td><b>Playground</b></td><td>Prompt, shared-context size (0&ndash;8000), mode radio, max tokens, temperature, <i>Run</i></td><td>Answer, per-request info, chunk map</td></tr>
+  <tr><td>4</td><td><b>Scenarios</b></td><td>Scenario radio, context size, questions/turns/users, <i>Run scenario</i></td><td>Summary, TTFT and token charts, chunk map, request table</td></tr>
+  <tr><td>5</td><td><b>Cache Inspector</b></td><td><i>Refresh</i>, <i>Clear L1</i>, <i>Clear everything</i>, <i>Simulate engine restart</i>, resize L1/L2</td><td>Chunk map of the last request, stored snapshots table, tier usage</td></tr>
+  <tr><td>&mdash;</td><td><b>About</b></td><td>&mdash;</td><td>Rendered <code>Docs/Research.md</code></td></tr>
+</table>
+
+<h4>Scenario registry</h4>
+<table>
+  <tr><th>Key</th><th>Title</th><th>Modes run</th><th>What it proves</th></tr>
+  <tr><td><code>doc_qa</code></td><td>Document Q&amp;A (RAG-style reuse)</td><td>cold, native, lmcache</td><td>One long document, several questions; TTFT gap is directly comparable</td></tr>
+  <tr><td><code>multi_turn</code></td><td>Multi-turn chat</td><td>cold, lmcache</td><td>History grows each turn; prefix reuse per turn</td></tr>
+  <tr><td><code>shared_prefix</code></td><td>Shared system prompt</td><td>cold, lmcache</td><td>Many users, one long system prompt</td></tr>
+  <tr><td><code>restart</code></td><td>Engine restart / persistence</td><td>lmcache, cold, lmcache, lmcache</td><td>Warm-up miss &rarr; restart &rarr; cold recompute vs L2 restore &rarr; L1 hit</td></tr>
+</table>
+<p>Documents for context come from <code>input/</code> (recursive scan for <code>.txt</code>, <code>.md</code>, <code>.rst</code>); a built-in corpus about LMCache is the fallback.</p>
+
+<h3 id="gui-state">4.2 AppState &amp; the connect handler</h3>
+<div class="file">kvbridge/app.py &mdash; AppState</div>
+<pre><code><span class="k">class</span> <span class="f">AppState</span>:
+    <span class="s">"""Process-wide mutable state shared by all GUI callbacks."""</span>
+    <span class="k">def</span> <span class="f">__init__</span>(self, settings):
+        self.settings = settings
+        self.engine: Optional[CachedEngine] = <span class="n">None</span>
+        self.last_status: list[str] = []
+        self.last_label = <span class="s">""</span>
+        self.lock = threading.RLock()
+
+    <span class="k">def</span> <span class="f">require</span>(self) -&gt; CachedEngine:
+        <span class="k">if</span> self.engine <span class="k">is None</span>:
+            <span class="k">raise</span> gr.Error(<span class="s">"Not connected. Open the 'Engine &amp; Cache' tab and click Connect."</span>)
+        <span class="k">return</span> self.engine</code></pre>
+<ul>
+  <li>Handlers that need an engine call <code>state.require()</code>; users see a Gradio error toast instead of a traceback.</li>
+  <li><code>connect(...)</code> runs under <code>state.lock</code>: stop previous engine &rarr; apply slider values to <code>Settings</code> &rarr; <code>validate()</code> &rarr; <code>CachedEngine(s, make_backend(kind, s)).start()</code>. <code>BackendError</code> becomes readable status text; unexpected exceptions are logged and shown.</li>
+  <li>Gradio queue concurrency is 4, while <code>CachedEngine.infer()</code> serialises engine access with its own <code>RLock</code> (one llama.cpp slot).</li>
+</ul>
+<p>A successful connect to llama.cpp produces a status such as:</p>
+<pre><code>Connected to llama.cpp - model llama3.2:latest - ctx 8192
+FULL integration: real KV tensors are saved / restored through llama.cpp slots.
+Hasher: kvbridge (LMCache-compatible blake3)</code></pre>
+
+<h3 id="gui-about">4.3 About tab: rendering the research document</h3>
+<p>The About tab renders <code>Docs/Research.md</code> directly, so the findings shown in the GUI and the repository document can never drift apart.</p>
+<div class="file">kvbridge/app.py &mdash; About tab</div>
+<pre><code><span class="k">with</span> gr.Tab(<span class="s">"About"</span>):
+    gr.Markdown((s.output_dir.parent / <span class="s">"Docs"</span> / <span class="s">"Research.md"</span>).read_text(encoding=<span class="s">"utf-8"</span>)
+                <span class="k">if</span> (s.output_dir.parent / <span class="s">"Docs"</span> / <span class="s">"Research.md"</span>).exists()
+                <span class="k">else</span> <span class="s">"See `Docs/Research.md`."</span>)</code></pre>
+<div class="note"><b>Path resolution</b> The file is located as <code>settings.output_dir.parent / "Docs" / "Research.md"</code>, i.e. relative to the project root. If it is missing, a one-line fallback is shown; the app never fails because of it.
+The text is read once at <code>build_app()</code> time, so edit the file and restart to refresh the tab.</div>
+
+<h3>4.4 Charts and metrics</h3>
+<ul>
+  <li><code>RequestRecord</code> carries: <code>label, mode, engine, prompt_tokens, computed_tokens, server_cached_tokens, ttft_ms, total_ms, prefill_ms, decode_tps, tier (L1|L2|none), chunks_total, chunks_hit, chunk_status, lmcache_match_tokens, lmcache_restored_tokens, restore_ms, save_ms, shadow, error, text</code>.</li>
+  <li><code>Metrics.export(dir)</code> writes <code>metrics_YYYYmmdd_HHMMSS.json</code> into <code>output/</code>.</li>
+  <li>Builders: <code>ttft_figure</code>, <code>tokens_figure</code>, <code>hit_rate_figure</code>, <code>tier_figure</code>, <code>chunk_map_figure</code>, <code>mode_compare_figure</code>, <code>records_table</code>, <code>entries_table</code>, <code>kpi_markdown</code>, <code>fmt_bytes</code>.</li>
+  <li><code>chunk_map_figure</code> uses height <code>max(220, 150 + 40*rows)</code> so a single row stays readable (covered by a regression test).</li>
+</ul>
+</section>
+
+<!-- ======================= 5. TESTS ======================= -->
+<section id="tests">
+<h2>5. Test suite</h2>
+<div class="grid">
+  <div class="card"><div class="kpi">125<small>unit tests passed (4 skipped) &mdash; <code>scripts/test.sh</code></small></div></div>
+  <div class="card"><div class="kpi">128<small>passed with live engines (1 skipped) &mdash; <code>scripts/test.sh --live</code></small></div></div>
+  <div class="card"><div class="kpi">129<small>tests collected in 7 files</small></div></div>
+</div>
+<p>Arithmetic: 125 passed + 4 skipped = 129 collected. With <code>KVB_LIVE=1</code> the three live tests move from skipped to passed: 125 + 3 = <strong>128 passed</strong>, 1 skipped.</p>
+
+<h3 id="tests-unit">5.1 Unit tests (125 passed)</h3>
+<table>
+  <tr><th>File</th><th class="num">Collected</th><th>Covers</th></tr>
+  <tr><td><code>test_backends.py</code></td><td class="num">29</td><td>llama.cpp and Ollama adapters against in-process fakes (<code>FakeLlama</code>, <code>FakeOllama</code>); command construction, GGUF resolution, error mapping, streaming parse</td></tr>
+  <tr><td><code>test_config.py</code></td><td class="num">7</td><td>Env/.env parsing, defaults, <code>validate()</code> rejections (chunk, ctx, tiers, ports, reserved ports)</td></tr>
+  <tr><td><code>test_engine.py</code></td><td class="num">22</td><td>Mode routing, L1/L2 hits, restore-failure fallback, shadow accounting, restart simulation, namespaces</td></tr>
+  <tr><td><code>test_hashing.py</code></td><td class="num">11 (1 skipped)</td><td>Rolling-hash determinism, prefix property, namespace isolation, partial-tail discard, adapter fallback</td></tr>
+  <tr><td><code>test_live.py</code></td><td class="num">3 (skipped unless <code>KVB_LIVE=1</code>)</td><td>Real engines (see below)</td></tr>
+  <tr><td><code>test_scenarios_charts_app.py</code></td><td class="num">21</td><td>Scenarios, chart builders, <code>AppState.require</code>, chunk-map height, <b>SIGTERM cleanup</b></td></tr>
+  <tr><td><code>test_store_metrics.py</code></td><td class="num">36</td><td>Tiered store (put/lookup/fetch/evict/resize/clear/index persistence), metrics and export</td></tr>
+  <tr><th>Total</th><th class="num">129</th><th>= 125 passed + 4 skipped</th></tr>
+</table>
+<p>The four skips in the default run are: the three live tests, and <code>test_hashing.py</code>'s equivalence test against the real LMCache hasher
+(<code>pytest.importorskip("lmcache.v1.multiprocess.token_hasher")</code>), which only runs where the optional package is installed.</p>
+
+<h3 id="tests-live">5.2 Live tests (128 passed)</h3>
+<p>Enabled with <code>KVB_LIVE=1</code> (what <code>scripts/test.sh --live</code> sets). They need a local Ollama with the configured model and a <code>llama-server</code> binary.</p>
+<table>
+  <tr><th>Test</th><th>Assertion</th></tr>
+  <tr><td><code>test_llamacpp_lmcache_beats_cold</code></td><td>Runs <code>doc_qa</code> (700-token context, 3 questions). Cold requests compute &gt;500 tokens; the first lmcache request is a miss; later lmcache requests have <code>chunks_hit &gt; 0</code> and compute &lt;100 tokens; their average TTFT is lower than cold</td></tr>
+  <tr><td><code>test_llamacpp_restart_restores_from_disk</code></td><td>Runs <code>restart</code>. The request after the real <code>llama-server</code> restart is served from tier <code>L2</code> with <code>chunks_hit &gt; 0</code> and computes fewer tokens than the cold request</td></tr>
+  <tr><td><code>test_ollama_shadow_mode</code></td><td>Runs <code>shared_prefix</code> (3 users) on Ollama: no errors, lmcache records are flagged <code>shadow</code>, and the second one has <code>chunks_hit &gt; 0</code> and <code>server_cached_tokens &gt; 0</code> (Ollama's own cache confirms the reuse)</td></tr>
+</table>
+
+<h3 id="tests-run">5.3 Running</h3>
+<pre><code><span class="c"># unit tests (no engine needed)</span>
+scripts/test.sh                  <span class="c"># -&gt; 125 passed, 4 skipped</span>
+
+<span class="c"># plus live engine tests</span>
+scripts/test.sh --live           <span class="c"># -&gt; 128 passed, 1 skipped</span>
+
+<span class="c"># a single file / test</span>
+.venv/bin/python -m pytest tests/test_store_metrics.py -q
+.venv/bin/python -m pytest tests/test_scenarios_charts_app.py::test_sigterm_runs_cleanup -q</code></pre>
+</section>
+
+<!-- ======================= 6. SERVER INTEGRATION ======================= -->
+<section id="servers">
+<h2>6. Server integration: Ollama &amp; llama.cpp</h2>
+<p>Both engines implement the abstract <code>Backend</code> interface (<code>start, stop, is_ready, tokenize, generate, reset_native_cache, save_state, restore_state, describe</code>) and are created by <code>make_backend(kind, settings)</code>, which accepts <code>llamacpp</code>/<code>llama</code>/<code>llama.cpp</code>/<code>llama-cpp</code> and <code>ollama</code> and raises <code>BackendError</code> otherwise.
+<code>GenResult</code> normalises timings across engines.</p>
+
+<h3 id="srv-llama">6.1 llama.cpp &mdash; full integration</h3>
+<p><code>LlamaCppBackend</code> drives <code>llama-server</code> over HTTP, with <strong>one slot</strong> (<code>-np 1</code>, <code>id_slot: 0</code>), so exactly one prefix is live at a time and the slot save/restore API acts on it.</p>
+<table>
+  <tr><th>Operation</th><th>Endpoint</th><th>Notes</th></tr>
+  <tr><td>Health</td><td><code>GET /health</code></td><td>Ready when HTTP 200 and <code>status == "ok"</code></td></tr>
+  <tr><td>Context size</td><td><code>GET /slots</code></td><td><code>_probe()</code> reads <code>n_ctx</code> of slot 0</td></tr>
+  <tr><td>Tokenise</td><td><code>POST /tokenize</code></td><td><code>{"content": text, "add_special": true}</code> &mdash; exact model token ids for hashing</td></tr>
+  <tr><td>Generate</td><td><code>POST /completion</code></td><td>Streaming, <code>id_slot: 0</code>, <code>cache_prompt</code>, <code>seed: 1</code>; TTFT = first SSE event; <code>timings.cache_n</code> / <code>prompt_n</code> give reused vs computed tokens</td></tr>
+  <tr><td>Erase native cache</td><td><code>POST /slots/0?action=erase</code></td><td>Used by <code>cold</code> and before every <code>lmcache</code> lookup</td></tr>
+  <tr><td>Save KV</td><td><code>POST /slots/0?action=save</code></td><td>Server writes <code>stage_&lt;pid&gt;_&lt;seq&gt;.bin</code> to <code>--slot-save-path</code>; KVBridge reads the bytes then unlinks the file</td></tr>
+  <tr><td>Restore KV</td><td><code>POST /slots/0?action=restore</code></td><td>KVBridge writes the blob into the slot directory, calls restore, then unlinks</td></tr>
+  <tr><td>Metrics</td><td><code>GET /metrics</code></td><td>Started with <code>--metrics</code></td></tr>
+</table>
+
+<h4>The managed command line</h4>
+<div class="file">LlamaCppBackend.build_command()</div>
+<pre><code>llama-server -m &lt;gguf&gt; --host 127.0.0.1 --port 8089 \
+             -c 8192 -np 1 \
+             --slot-save-path &lt;project&gt;/output/slot_stage \
+             --cache-ram 0 --metrics --no-webui \
+             [-ngl N]            <span class="c"># only if KVB_N_GPU_LAYERS &gt;= 0</span>
+             [extra args]        <span class="c"># KVB_EXTRA_ARGS, split on whitespace</span></code></pre>
+<ul>
+  <li><code>--cache-ram 0</code> disables llama.cpp's own host-RAM prompt cache so the <code>native</code> vs <code>lmcache</code> comparison stays honest (<code>KVB_CACHE_RAM_MB</code>).</li>
+  <li><code>--no-webui</code> and loopback binding keep the server private.</li>
+  <li>The model is the <strong>same GGUF blob Ollama already downloaded</strong>: <code>resolve_ollama_gguf()</code> reads <code>manifests/registry.ollama.ai/library/&lt;name&gt;/&lt;tag&gt;</code>, finds the layer with media type <code>application/vnd.ollama.image.model</code>, and maps its digest to <code>blobs/sha256-...</code>. Override with <code>KVB_MODEL_PATH</code>.</li>
+  <li>Binary discovery order (<code>find_llama_server</code>): <code>KVB_LLAMA_SERVER_BIN</code> &rarr; <code>PATH</code> &rarr; <code>/opt/homebrew/bin</code> &rarr; <code>/usr/local/bin</code> &rarr; <code>Ollama.app/Contents/Resources</code>.</li>
+  <li>Setting <code>KVB_LLAMA_URL</code> attaches to an <em>external</em> server instead; KVBridge then never spawns, stops or restarts it.</li>
+</ul>
+<div class="warn"><b>Slot directory contract</b> <code>KVB_SLOT_DIR</code> must be the server's <code>--slot-save-path</code>. For an external server, point it at the same directory, or save/restore will fail with a clear <code>BackendError</code> ("is KVB_SLOT_DIR the server's --slot-save-path?").</div>
+
+<h3 id="srv-ollama">6.2 Ollama &mdash; shadow mode</h3>
+<p>Ollama exposes no API to read or write KV tensors and no tokenizer endpoint, so KVBridge cannot store its cache. It still runs the <em>whole LMCache-style control plane</em> next to Ollama and uses Ollama's own counters as ground truth.</p>
+<table>
+  <tr><th>Operation</th><th>Endpoint</th><th>Notes</th></tr>
+  <tr><td>Readiness</td><td><code>GET /api/version</code></td><td>Failure &rarr; <code>BackendError("Ollama not reachable ... ollama serve")</code></td></tr>
+  <tr><td>Model info</td><td><code>POST /api/show</code></td><td>404 &rarr; &ldquo;run ollama pull&rdquo;. Computes <code>kv_bytes_per_token = 2 &middot; blocks &middot; kv_heads &middot; (emb/heads) &middot; 2</code> (K+V, fp16)</td></tr>
+  <tr><td>Generate</td><td><code>POST /api/generate</code></td><td><code>raw: true</code>, streaming, <code>keep_alive: "10m"</code>, <code>num_ctx</code>, <code>seed: 1</code>; reads <code>prompt_eval_count</code> and <code>prompt_eval_cached_count</code></td></tr>
+  <tr><td>Reset cache</td><td><code>POST /api/generate</code> <code>keep_alive: 0</code>, <code>GET /api/ps</code></td><td>Unloads the model, waits (&le; 10 s) until <code>/api/ps</code> no longer lists it, then loads it empty</td></tr>
+  <tr><td>Tokenise</td><td>local <code>pseudo_tokenize()</code></td><td>CRC32 of each word / punctuation / whitespace run &mdash; stable, <em>not</em> the model vocabulary</td></tr>
+</table>
+<p>In shadow mode (<code>_infer_shadow</code>):</p>
+<ol class="steps">
+  <li>Pseudo-tokenise the prompt and compute chunk hashes; <code>cold</code> first calls <code>reset_native_cache()</code>.</li>
+  <li><code>lmcache</code> looks the hashes up in the store (accounting only).</li>
+  <li>Ollama generates normally; its <code>prompt_eval_cached_count</code> becomes <code>server_cached_tokens</code>.</li>
+  <li>Predicted match tokens are scaled by <code>prompt_tokens / len(pseudo_tokens)</code> so numbers are comparable with Ollama's real tokens.</li>
+  <li>On a miss, a <em>virtual</em> entry (no blob, note <code>shadow (accounting only)</code>, size from <code>kv_bytes_per_token</code>) is recorded so hit rates, tier usage and the chunk map still work.</li>
+</ol>
+<div class="note"><b>Honest reading</b> In shadow mode the savings come from <em>Ollama's</em> prefix cache; KVBridge predicts and measures them. Records carry <code>shadow=true</code> and the GUI labels the mode &ldquo;SHADOW&rdquo;.</div>
+
+<h3 id="srv-compare">6.3 Comparison</h3>
+<table>
+  <tr><th>Capability</th><th>llama.cpp</th><th>Ollama</th></tr>
+  <tr><td>Export / import KV tensors</td><td><span class="pill ok">yes</span> slot save/restore</td><td><span class="pill no">no</span></td></tr>
+  <tr><td>Real tokenizer</td><td><span class="pill ok">yes</span> <code>/tokenize</code></td><td><span class="pill no">no</span> pseudo-tokens</td></tr>
+  <tr><td>Persistent L2 hits restored into the engine</td><td><span class="pill ok">yes</span></td><td><span class="pill no">accounting only</span></td></tr>
+  <tr><td>Survives engine restart</td><td><span class="pill ok">yes</span> (disk tier)</td><td><span class="pill no">no</span></td></tr>
+  <tr><td>Lifecycle owned by KVBridge</td><td><span class="pill ok">spawn / stop / restart</span></td><td><span class="pill part">external daemon</span> (<code>stop()</code> is a no-op)</td></tr>
+  <tr><td>Reuse ground truth</td><td><code>timings.cache_n</code></td><td><code>prompt_eval_cached_count</code></td></tr>
+  <tr><td>Integration level</td><td><b>FULL</b></td><td><b>SHADOW</b></td></tr>
+</table>
+</section>
+
+<!-- ======================= 7. CONNECTION FLOW ======================= -->
+<section id="connection">
+<h2>7. Connection flow &amp; managed-server spawning</h2>
+
+<h3 id="conn-flow">7.1 Connect sequence</h3>
+<figure>
+<svg viewBox="0 0 880 470" width="880" role="img" aria-label="Connect sequence" font-family="-apple-system,Segoe UI,sans-serif" font-size="12.5">
+  <defs><marker id="ar4" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#59636e"/></marker>
+        <marker id="ar4d" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#8c959f"/></marker></defs>
+  <g font-weight="700" text-anchor="middle">
+    <rect x="10" y="8" width="120" height="30" rx="6" fill="#edf5ff" stroke="#0f62fe"/><text x="70" y="28">Browser</text>
+    <rect x="200" y="8" width="130" height="30" rx="6" fill="#edf5ff" stroke="#0f62fe"/><text x="265" y="28">connect()</text>
+    <rect x="400" y="8" width="150" height="30" rx="6" fill="#edf5ff" stroke="#0f62fe"/><text x="475" y="28">CachedEngine</text>
+    <rect x="620" y="8" width="120" height="30" rx="6" fill="#f6f8fa" stroke="#8c959f"/><text x="680" y="28">Backend</text>
+    <rect x="770" y="8" width="100" height="30" rx="6" fill="#f6f8fa" stroke="#8c959f"/><text x="820" y="28">llama-server</text>
+  </g>
+  <g stroke="#c9d1d9" stroke-dasharray="4 4"><path d="M70 38V460"/><path d="M265 38V460"/><path d="M475 38V460"/><path d="M680 38V460"/><path d="M820 38V460"/></g>
+  <g stroke="#59636e" stroke-width="1.4" fill="none" marker-end="url(#ar4)">
+    <path d="M70 62H265"/><path d="M265 88H475"/><path d="M475 114H680"/>
+    <path d="M680 146H680" stroke="none"/>
+    <path d="M680 168H820"/><path d="M680 218H820"/><path d="M680 248H820"/>
+    <path d="M680 322H475"/><path d="M475 348H265"/><path d="M265 374H70"/>
+  </g>
+  <g stroke="#8c959f" stroke-width="1.3" fill="none" marker-end="url(#ar4d)" stroke-dasharray="5 3">
+    <path d="M820 198H680"/><path d="M820 268H680"/>
+  </g>
+  <g fill="#1f2328">
+    <text x="168" y="56" text-anchor="middle">Connect (kind, model, sliders)</text>
+    <text x="370" y="82" text-anchor="middle">stop old &#183; validate &#183; make_backend</text>
+    <text x="578" y="108" text-anchor="middle">start()</text>
+    <text x="750" y="162" text-anchor="middle">GET /health</text>
+    <text x="750" y="190" text-anchor="middle" fill="#59636e">ok? &rarr; attach</text>
+    <text x="750" y="212" text-anchor="middle">else Popen(llama-server)</text>
+    <text x="750" y="242" text-anchor="middle">poll /health &#8804; 180 s</text>
+    <text x="750" y="262" text-anchor="middle" fill="#59636e">status ok</text>
+    <text x="578" y="316" text-anchor="middle">ready (n_ctx via /slots)</text>
+    <text x="370" y="342" text-anchor="middle">store index loaded</text>
+    <text x="168" y="368" text-anchor="middle">status text: FULL / SHADOW</text>
+  </g>
+  <rect x="90" y="400" width="700" height="50" rx="8" fill="#fff1f1" stroke="#a2191f"/>
+  <text x="440" y="422" text-anchor="middle" font-weight="700" fill="#a2191f">Any BackendError at any step &rarr; readable status text; no engine is stored in AppState</text>
+  <text x="440" y="440" text-anchor="middle" fill="#59636e">e.g. binary not found &middot; port busy &middot; model missing &middot; server exited &middot; not ready within 180 s</text>
+</svg>
+<figcaption>Figure 4 &mdash; Connect sequence for llama.cpp. For Ollama, <code>start()</code> only checks <code>/api/version</code> and <code>/api/show</code>.</figcaption>
+</figure>
+
+<p><code>CachedEngine.start()</code> additionally refreshes the hasher and the store directory, then loads the persisted index. The namespace <code>"{backend.name}|{model_id}"</code> seeds the hash and selects a <em>per-model sanitised store directory</em>, so different models/engines never see each other's snapshots (a snapshot is only valid for the same model file and context size).</p>
+
+<h3 id="conn-spawn">7.2 Managed-server spawning</h3>
+<p><code>LlamaCppBackend.start()</code> evaluates, in order:</p>
+<ol class="steps">
+  <li><b>Attach if healthy.</b> If <code>is_ready()</code> (HTTP 200, <code>status: ok</code> on <code>/health</code>), reuse the running server and <code>_probe()</code> it. Nothing is spawned and <code>self.proc</code> stays <code>None</code>, so <code>stop()</code> will not kill someone else's server.</li>
+  <li><b>External but down.</b> If <code>KVB_LLAMA_URL</code> is set and unreachable &rarr; <code>BackendError("external llama-server not reachable at ...")</code>.</li>
+  <li><b>Port conflict.</b> If the managed port answers but is not a healthy llama-server &rarr; <code>BackendError("port N is busy but not a healthy llama-server; change KVB_MANAGED_PORT")</code>.</li>
+  <li><b>Spawn.</b> Build the command, create the log directory, open <code>output/logs/llama_server.log</code> (append), and <code>subprocess.Popen(..., stdout=log, stderr=STDOUT, start_new_session=True)</code>.</li>
+  <li><b>Record the PID</b> in <code>output/llama_server.pid</code> (used by <code>stop.sh</code> as a safety net).</li>
+  <li><b>Wait for readiness</b> up to 180 s, every 0.5 s. If the process exits early &rarr; <code>BackendError("llama-server exited with code N; see ...llama_server.log")</code>. On timeout it calls <code>stop()</code> before raising.</li>
+  <li><b>Probe</b> <code>/slots</code> for the real <code>n_ctx</code>.</li>
+</ol>
+<div class="file">kvbridge/backends.py &mdash; LlamaCppBackend.start() (excerpt)</div>
+<pre><code>self.proc = subprocess.Popen(cmd, stdout=logf, stderr=subprocess.STDOUT,
+                             start_new_session=<span class="n">True</span>)         <span class="c"># own session + process group</span>
+self.pidfile.write_text(str(self.proc.pid))
+deadline = time.time() + <span class="n">180</span>
+<span class="k">while</span> time.time() &lt; deadline:
+    <span class="k">if</span> self.proc.poll() <span class="k">is not None</span>:
+        <span class="k">raise</span> BackendError(f<span class="s">"llama-server exited with code {self.proc.returncode}; "</span>
+                           f<span class="s">"see {self.s.log_dir / 'llama_server.log'}"</span>)
+    <span class="k">if</span> self.is_ready():
+        self._probe(); <span class="k">return</span>
+    time.sleep(<span class="n">0.5</span>)
+self.stop()
+<span class="k">raise</span> BackendError(<span class="s">"llama-server did not become ready within 180 s"</span>)</code></pre>
+<p><code>start_new_session=True</code> puts the child in its own process group (<code>pgid == pid</code>). That is what allows <code>stop()</code> to signal the whole group with <code>os.killpg</code> and prevents a terminal Ctrl-C aimed at the GUI from also hitting the server uncontrolled.</p>
+<div class="warn"><b>Ports</b> KVBridge refuses to use the managed ports 5000 (AirDrop on macOS), 8080, 9931 and 11434 (Ollama). Defaults are GUI <code>7871</code> and server <code>8089</code>.</div>
+</section>
+
+<!-- ======================= 8. SHUTDOWN ======================= -->
+<section id="shutdown">
+<h2>8. Shutdown procedures &amp; orphan prevention</h2>
+
+<h3 id="sd-layers">8.1 Defence in depth</h3>
+<figure>
+<svg viewBox="0 0 860 250" width="860" role="img" aria-label="Shutdown layers" font-family="-apple-system,Segoe UI,sans-serif" font-size="13">
+  <defs><marker id="ar5" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#59636e"/></marker></defs>
+  <rect x="10" y="20" width="190" height="70" rx="8" fill="#edf5ff" stroke="#0f62fe"/><text x="105" y="48" text-anchor="middle" font-weight="700">stop.sh</text><text x="105" y="68" text-anchor="middle" fill="#59636e">kill -TERM &lt;gui pid&gt;</text>
+  <rect x="250" y="20" width="190" height="70" rx="8" fill="#edf5ff" stroke="#0f62fe"/><text x="345" y="48" text-anchor="middle" font-weight="700">SIGTERM handler</text><text x="345" y="68" text-anchor="middle" fill="#59636e">sys.exit(0)</text>
+  <rect x="490" y="20" width="170" height="70" rx="8" fill="#edf5ff" stroke="#0f62fe"/><text x="575" y="48" text-anchor="middle" font-weight="700">finally:</text><text x="575" y="68" text-anchor="middle" fill="#59636e">engine.stop()</text>
+  <rect x="700" y="20" width="150" height="70" rx="8" fill="#defbe6" stroke="#198038"/><text x="775" y="48" text-anchor="middle" font-weight="700">killpg(TERM)</text><text x="775" y="68" text-anchor="middle" fill="#59636e">wait 15 s &rarr; KILL</text>
+  <g stroke="#59636e" stroke-width="1.5" fill="none" marker-end="url(#ar5)"><path d="M200 55H250"/><path d="M440 55H490"/><path d="M660 55H700"/></g>
+  <rect x="10" y="130" width="840" height="100" rx="8" fill="#f6f8fa" stroke="#8c959f" stroke-dasharray="5 4"/>
+  <text x="430" y="154" text-anchor="middle" font-weight="700">Safety nets when the GUI could not clean up (e.g. SIGKILL)</text>
+  <text x="430" y="178" text-anchor="middle" fill="#1f2328">stop.sh then reads output/llama_server.pid &rarr; TERM &rarr; wait up to 15 s &rarr; KILL &rarr; remove pid file</text>
+  <text x="430" y="200" text-anchor="middle" fill="#1f2328">start_new_session=True &rarr; whole process group can be signalled</text>
+  <text x="430" y="220" text-anchor="middle" fill="#59636e">Next start: is_ready() attaches to a surviving healthy server instead of spawning a duplicate</text>
+</svg>
+<figcaption>Figure 5 &mdash; Normal shutdown path (top) and recovery layers (bottom).</figcaption>
+</figure>
+
+<h4>Layer 1 &mdash; GUI exit path</h4>
+<div class="file">kvbridge/backends.py &mdash; LlamaCppBackend.stop()</div>
+<pre><code><span class="k">def</span> <span class="f">stop</span>(self) -&gt; <span class="n">None</span>:
+    <span class="k">if</span> self.proc <span class="k">and</span> self.proc.poll() <span class="k">is None</span>:
+        <span class="k">try</span>:
+            os.killpg(self.proc.pid, signal.SIGTERM)       <span class="c"># whole group, graceful</span>
+            self.proc.wait(timeout=<span class="n">15</span>)
+        <span class="k">except</span> (ProcessLookupError, subprocess.TimeoutExpired):
+            <span class="k">try</span>:
+                os.killpg(self.proc.pid, signal.SIGKILL)   <span class="c"># escalate</span>
+            <span class="k">except</span> ProcessLookupError:
+                <span class="k">pass</span>
+    self.proc = <span class="n">None</span>
+    self.pidfile.unlink(missing_ok=<span class="n">True</span>)</code></pre>
+<p>Idempotent: calling it twice, or when the child already exited, is harmless. External servers (<code>proc is None</code>) are never touched. <code>OllamaBackend.stop()</code> is a no-op because Ollama is an independent daemon.</p>
+
+<h4>Layer 2 &mdash; <code>scripts/stop.sh</code></h4>
+<div class="file">scripts/stop.sh</div>
+<pre><code><span class="c">#!/usr/bin/env bash</span>
+<span class="c"># Gracefully stop the GUI and any managed llama-server it started.</span>
+set -uo pipefail
+cd <span class="s">"$(dirname "$0")/.."</span>
+
+<span class="f">stop_pid</span>() {  <span class="c"># $1=pidfile $2=name</span>
+  [ -f <span class="s">"$1"</span> ] || <span class="k">return</span> 0
+  pid=<span class="s">"$(cat "$1")"</span>
+  <span class="k">if</span> kill -0 <span class="s">"$pid"</span> 2&gt;/dev/null; <span class="k">then</span>
+    kill -TERM <span class="s">"$pid"</span> 2&gt;/dev/null
+    <span class="k">for</span> _ <span class="k">in</span> $(seq 1 30); <span class="k">do</span> kill -0 <span class="s">"$pid"</span> 2&gt;/dev/null || <span class="k">break</span>; sleep 0.5; <span class="k">done</span>
+    <span class="k">if</span> kill -0 <span class="s">"$pid"</span> 2&gt;/dev/null; <span class="k">then</span> kill -KILL <span class="s">"$pid"</span> 2&gt;/dev/null; echo <span class="s">"$2 force-killed"</span>; <span class="k">else</span> echo <span class="s">"$2 stopped"</span>; <span class="k">fi</span>
+  <span class="k">fi</span>
+  rm -f <span class="s">"$1"</span>
+}
+
+stop_pid output/kvbridge.pid <span class="s">"KVBridge GUI"</span>
+<span class="c"># The GUI stops its managed llama-server on exit; clean up if it was orphaned.</span>
+stop_pid output/llama_server.pid <span class="s">"managed llama-server"</span></code></pre>
+<ul>
+  <li>Order matters: the GUI is stopped <em>first</em> so its own cleanup runs; only then is the server pid file consulted.</li>
+  <li>If Layer 1 worked, <code>llama_server.pid</code> is already gone and the second call is a no-op. Layer 1 is the primary mechanism; the pid-file pass is a belt-and-braces fallback.</li>
+  <li><code>cleanup.sh</code> calls <code>stop.sh</code> before deleting <code>.venv</code>, <code>.pytest_cache</code>, <code>node_modules</code> and <code>__pycache__</code>.</li>
+</ul>
+
+<h3 id="sd-bug">8.2 The orphan bug (found and fixed)</h3>
+<div class="bad"><b>Symptom</b> After <code>scripts/stop.sh</code>, the GUI was gone and <code>output/llama_server.pid</code> was removed, but a managed <code>llama-server</code> kept listening on :8089 with parent PID 1 (reparented to <code>init</code>).</div>
+<table>
+  <tr><th>Step</th><th>What happened</th></tr>
+  <tr><td>1</td><td><code>stop.sh</code> sent SIGTERM to the GUI.</td></tr>
+  <tr><td>2</td><td>With no handler installed, Python used the OS default: terminate immediately. <code>finally</code> never ran, so <code>engine.stop()</code> was never called.</td></tr>
+  <tr><td>3</td><td>The managed <code>llama-server</code> (own session via <code>start_new_session=True</code>, so it does not receive the GUI's signals) was never told to stop. It stayed alive, reparented to PID 1, while the pid file was gone.</td></tr>
+  <tr><td>Root cause</td><td>Missing SIGTERM handler in <code>main()</code>.</td></tr>
+  <tr><td>Fix</td><td><code>signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))</code> (plus <code>import signal, sys</code>) so SIGTERM unwinds through <code>finally</code>.</td></tr>
+  <tr><td>Verification</td><td>End-to-end: start &rarr; Connect via GUI (spawns :8089) &rarr; <code>stop.sh</code>. Afterwards nothing listens on 8089 or 7871 and no pid files remain. Plus the automated regression test in <a href="#regression">section 9</a>.</td></tr>
+</table>
+<div class="note"><b>Why not rely on <code>atexit</code>?</b> <code>atexit</code> handlers are also skipped when the process dies from an unhandled fatal signal. Only a Python-level handler converts the signal into an exception/exit that runs cleanup.</div>
+
+<h3 id="sd-scripts">8.3 Script reference</h3>
+<table>
+  <tr><th>Script</th><th>Purpose</th></tr>
+  <tr><td><code>scripts/setup.sh</code></td><td><code>uv venv</code> (Python 3.12), <code>uv pip install -r requirements.txt</code>, create <code>.env</code> from <code>.env.example</code></td></tr>
+  <tr><td><code>scripts/start.sh</code></td><td>Detached launch, PID in <code>output/kvbridge.pid</code>, log in <code>output/logs/kvbridge.log</code>, prints the URL</td></tr>
+  <tr><td><code>scripts/stop.sh</code></td><td>Graceful stop (TERM &rarr; 15 s &rarr; KILL) of the GUI, then any leftover managed server</td></tr>
+  <tr><td><code>scripts/cleanup.sh</code></td><td>Stop, then remove <code>.venv</code>, <code>.pytest_cache</code>, <code>node_modules</code>, <code>__pycache__</code></td></tr>
+  <tr><td><code>scripts/test.sh [--live]</code></td><td>Run pytest; <code>--live</code> sets <code>KVB_LIVE=1</code></td></tr>
+  <tr><td><code>scripts/install_lmcache.sh</code></td><td>Optional: build the real LMCache <code>TokenHasher</code> with <code>NO_GPU_EXT=1</code></td></tr>
+</table>
+<p>No container images are pulled by KVBridge, so there is no image-cleanup script.</p>
+</section>
+
+<!-- ======================= 9. REGRESSION ======================= -->
+<section id="regression">
+<h2>9. Regression testing for signal handling</h2>
+<p><code>test_sigterm_runs_cleanup</code> in <code>tests/test_scenarios_charts_app.py</code> locks in the fix. It exercises the <em>real</em> <code>app.main()</code> in a child interpreter with only the heavy parts replaced, so the actual <code>signal.signal(...)</code> line is under test.</p>
+<ol class="steps">
+  <li><b>Spawn</b> a child Python (<code>sys.executable -c script</code>) with <code>KVB_*</code> directories pointing into <code>tmp_path</code>.</li>
+  <li><b>Patch inside the child:</b> <code>app.build_app</code> returns a fake <code>Demo</code> whose <code>launch()</code> prints <code>READY</code> and sleeps 60 s; <code>app.AppState</code> returns an object whose <code>engine.stop()</code> writes a marker file.</li>
+  <li><b>Wait for <code>READY</code></b> on the child's stdout (30 s deadline) &mdash; this guarantees the handler is already installed.</li>
+  <li><b>Send SIGTERM</b> and <code>wait(timeout=15)</code>.</li>
+  <li><b>Assert</b> the marker file exists, i.e. <code>finally</code> ran and <code>engine.stop()</code> was called. A <code>finally</code> clause in the test kills the child if it is still alive.</li>
+</ol>
+<div class="file">tests/test_scenarios_charts_app.py</div>
+<pre><code><span class="k">def</span> <span class="f">test_sigterm_runs_cleanup</span>(tmp_path):
+    <span class="s">"""main() must turn SIGTERM into a normal exit so ``finally`` stops the engine."""</span>
+    marker = tmp_path / <span class="s">"cleaned"</span>
+    script = textwrap.dedent(f<span class="s">"""
+        import sys, time
+        from unittest import mock
+        import kvbridge.app as app
+
+        class Eng:
+            def stop(self): open({str(marker)!r}, "w").write("ok")
+
+        class Demo:
+            def queue(self, **k): return self
+            def launch(self, **k):
+                print("READY", flush=True)
+                time.sleep(60)
+
+        with mock.patch.object(app, "build_app", lambda state: Demo()), \\
+             mock.patch.object(app, "AppState") as st:
+            st.return_value.engine = Eng()
+            app.main()
+    """</span>)
+    env = {**os.environ, <span class="s">"KVB_OUTPUT_DIR"</span>: str(tmp_path), <span class="s">"KVB_STORE_DIR"</span>: str(tmp_path / <span class="s">"s"</span>),
+           <span class="s">"KVB_SLOT_DIR"</span>: str(tmp_path / <span class="s">"sl"</span>), <span class="s">"KVB_LOG_DIR"</span>: str(tmp_path / <span class="s">"l"</span>)}
+    p = subprocess.Popen([sys.executable, <span class="s">"-c"</span>, script], stdout=subprocess.PIPE,
+                         stderr=subprocess.STDOUT, text=<span class="n">True</span>, env=env, cwd=PROJECT_ROOT)
+    <span class="k">try</span>:
+        deadline = time.time() + <span class="n">30</span>
+        <span class="k">while</span> time.time() &lt; deadline:
+            <span class="k">if</span> <span class="s">"READY"</span> <span class="k">in</span> (p.stdout.readline() <span class="k">or</span> <span class="s">""</span>):
+                <span class="k">break</span>
+        <span class="k">else</span>:
+            pytest.fail(<span class="s">"child never became ready"</span>)
+        p.send_signal(signal.SIGTERM)
+        p.wait(timeout=<span class="n">15</span>)
+    <span class="k">finally</span>:
+        <span class="k">if</span> p.poll() <span class="k">is None</span>:
+            p.kill()
+    <span class="k">assert</span> marker.exists(), <span class="s">"engine.stop() was not called on SIGTERM"</span></code></pre>
+<p class="note" style="padding:10px 14px"><b>Abridged.</b> The real test imports <code>os, signal, subprocess, sys, textwrap, time</code> inside the function and computes <code>cwd</code> as the project root with <code>os.path.dirname(os.path.dirname(os.path.abspath(__file__)))</code>; <code>PROJECT_ROOT</code> above stands for that expression.</p>
+
+<h3>Proof that the test guards the fix</h3>
+<table>
+  <tr><th>Code under test</th><th>Result</th></tr>
+  <tr><td><code>signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))</code> present</td><td><span class="pill ok">pass</span> marker file written</td></tr>
+  <tr><td>That line replaced with <code>pass</code></td><td><span class="pill no">fail</span> <code>engine.stop() was not called on SIGTERM</code></td></tr>
+</table>
+<p>A companion test in the same file, <code>test_chunk_map_has_readable_height_for_single_row</code>, guards the chart-height fix (<code>fig.layout.height &gt;= 220</code>).</p>
+<div class="warn"><b>Scope of the guarantee</b> The test proves that SIGTERM reaches <code>engine.stop()</code>. It uses a fake engine, so the process-group kill of a real <code>llama-server</code> is covered by the live end-to-end check (start &rarr; Connect &rarr; stop &rarr; ports free), not by the unit suite. SIGKILL cannot be handled by any process; <code>stop.sh</code>'s pid-file fallback is the mitigation.</div>
+</section>
+
+<section id="limits">
+<h2>10. Limitations &amp; challenges</h2>
+
+<h3>10.1 Known limitations</h3>
+<table>
+  <tr><th>Limitation</th><th>Detail</th></tr>
+  <tr><td>LMCache-<i>style</i>, not LMCache</td><td>KVBridge re-implements the chunking, chained hashing and tiered-store ideas of LMCache. It does not embed the LMCache engine, because the PyPI wheel is <code>manylinux</code>/CUDA-only and cannot run on Apple Silicon. The real library is optional and used only for the hasher equivalence test, which is skipped when it is absent.</td></tr>
+  <tr><td>Whole-slot snapshots</td><td>llama.cpp slot save/restore stores the full slot, not individual chunks. Chunk hashes are the index and the hit-rate accounting; the restored state is one blob (about 70 MB per ~600 tokens).</td></tr>
+  <tr><td>Model- and context-bound</td><td>A snapshot is valid only for the same model file and context size. Changing either requires a new cache.</td></tr>
+  <tr><td>Ollama is shadow mode</td><td>Ollama exposes no KV-state API. KVBridge runs it in shadow mode with pseudo-tokens: the store tracks what LMCache <i>would</i> have reused and reports Ollama's own prompt-cache counters alongside.</td></tr>
+  <tr><td>No remote tiers</td><td>Only L1 (RAM) and L2 (disk). There is no Redis/S3 tier and no multi-instance sharing.</td></tr>
+  <tr><td>Warm-slot comparison</td><td>On a warm slot, <code>native</code> llama.cpp prefix caching is faster than <code>lmcache</code> (native avg 64 ms in our run). The value of the cache layer is persistence across restarts and capacity beyond one slot.</td></tr>
+  <tr><td>Unused helper</td><td><code>common_prefix_len</code> in <code>hashing.py</code> is tested but not called by the engine.</td></tr>
+</table>
+
+<h3>10.2 Challenges and solutions</h3>
+<table>
+  <tr><th>Challenge</th><th>Solution</th></tr>
+  <tr><td>Orphaned <code>llama-server</code> after the GUI was stopped with SIGTERM</td><td>Install a SIGTERM handler that calls <code>sys.exit(0)</code> so the <code>finally</code> block runs <code>engine.stop()</code>; spawn the server in its own session and kill its process group; add a pid-file fallback in <code>stop.sh</code>; add regression test (&sect;9).</td></tr>
+  <tr><td>Chunk-map chart unreadable with a single row</td><td>Enforce a minimum figure height of 220 px; covered by a unit test.</td></tr>
+  <tr><td>README example drifted from real behaviour</td><td>Re-ran the example against the live stack and corrected the numbers.</td></tr>
+  <tr><td>Port clashes on macOS</td><td>Reserved ports (5000, 8080, 9931, 11434) are avoided; GUI uses 7871 and the managed server 8089, both overridable via <code>KVB_*</code>.</td></tr>
+  <tr><td>Unfair benchmark against native caching</td><td>The server is started with <code>--cache-ram 0</code> so native host-memory caching does not mask the measurement.</td></tr>
+</table>
+</section>
+
+<section id="layout-ref">
+<h2>11. Project layout</h2>
+<pre><code>lmcache-test/
+├── kvbridge/
+│   ├── __init__.py
+│   ├── __main__.py        # python -m kvbridge
+│   ├── app.py             # Gradio GUI, AppState, main(), SIGTERM handler
+│   ├── backends.py        # LlamaCppBackend, OllamaBackend, make_backend
+│   ├── engine.py          # KVBridgeEngine: lookup, restore, compute, store
+│   ├── store.py           # L1 RAM / L2 disk tiered store
+│   ├── hashing.py         # chunking + chained hashes
+│   ├── metrics.py         # counters, TTFT, hit rates
+│   ├── charts.py          # Plotly figures
+│   ├── scenarios.py       # demo scenario registry
+│   └── config.py          # Settings.from_env()
+├── tests/                 # unit + live tests
+├── scripts/               # setup, start, stop, test, cleanup, install_lmcache
+├── Docs/                  # Quickstart, Architecture, Research, this file
+├── input/  output/        # tracked via .gitkeep, contents ignored
+├── requirements.txt
+├── pytest.ini
+├── .env.example
+└── README.md              # includes the Apache-2.0 licence statement</code></pre>
+</section>
+
+<section id="quick">
+<h2>12. Quick reference</h2>
+<pre><code><span class="c"># one-time setup (uv + .venv)</span>
+scripts/setup.sh
+cp .env.example .env          <span class="c"># then edit KVB_* values</span>
+
+<span class="c"># start in detached mode (prints the URL)</span>
+scripts/start.sh              <span class="c"># http://127.0.0.1:7871</span>
+
+<span class="c"># graceful shutdown (also stops the managed llama-server)</span>
+scripts/stop.sh
+
+<span class="c"># tests</span>
+scripts/test.sh               <span class="c"># 125 unit tests</span>
+scripts/test.sh --live        <span class="c"># + live tests (needs a model and llama-server)</span>
+
+<span class="c"># remove .venv, node_modules and __pycache__</span>
+scripts/cleanup.sh</code></pre>
+<table>
+  <tr><th>Item</th><th>Value</th></tr>
+  <tr><td>GUI URL</td><td><code>http://127.0.0.1:7871</code></td></tr>
+  <tr><td>Managed llama-server port</td><td><code>8089</code></td></tr>
+  <tr><td>Configuration</td><td><code>KVB_*</code> environment variables or <code>.env</code></td></tr>
+  <tr><td>Licence</td><td>Apache-2.0</td></tr>
+</table>
+</section>
+
+<a class="top" href="#top">&uarr; Top</a>
+<footer>Made with IBM Bob</footer>
+</main>
+</div>
+</body>
+</html>
